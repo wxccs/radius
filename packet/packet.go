@@ -94,12 +94,12 @@ func (p *Packet) Marshal(secret []byte) ([]byte, error) {
 		}
 	}
 
-	// For request packets that carry a random Request Authenticator
-	// (Access-Request, CoA-Request, Disconnect-Request), the caller-supplied
-	// value is written directly. For Accounting-Request and reply packets,
-	// the Authenticator is computed last and is left zero for now.
-	switch p.Code {
-	case types.AccessRequest, types.CoARequest, types.DisconnectRequest:
+	// For Access-Request the Request Authenticator is a caller-supplied
+	// random 16-byte value (RFC 2865 §3); write it directly. CoA-Request
+	// and Disconnect-Request use the Accounting-Request authenticator
+	// formula (RFC 5176 §2.3), so they are computed alongside
+	// Accounting-Request below.
+	if p.Code == types.AccessRequest {
 		copy(out[4:20], p.Authenticator[:])
 	}
 
@@ -113,9 +113,11 @@ func (p *Packet) Marshal(secret []byte) ([]byte, error) {
 		copy(out[valueStart:valueStart+16], mac[:])
 	}
 
-	// Compute the final Authenticator for reply and accounting-request packets.
+	// Compute the final Authenticator for reply, accounting-request, and
+	// CoA/DM-request packets. Access-Request already wrote the caller's
+	// random authenticator above.
 	switch p.Code {
-	case types.AccountingRequest:
+	case types.AccountingRequest, types.CoARequest, types.DisconnectRequest:
 		auth := crypto.ComputeAccountingRequestAuthenticator(byte(p.Code), p.Identifier, uint16(length), out[20:], secret)
 		copy(out[4:20], auth[:])
 	case types.AccessAccept, types.AccessReject, types.AccessChallenge,
@@ -211,9 +213,14 @@ func (p *Packet) Unmarshal(data []byte, secret []byte) error {
 	p.Authenticator = auth
 	p.Attributes = attrs
 
-	// Accounting-Request carries its own authenticator formula, so we can
-	// verify it without external state.
-	if code == types.AccountingRequest {
+	// Accounting-Request, CoA-Request, and Disconnect-Request all carry
+	// an authenticator computed via the Accounting-Request formula
+	// (RFC 2866 §3, RFC 5176 §2.3). We can verify them without external
+	// state because the formula does not depend on a prior packet's
+	// authenticator.
+	if code == types.AccountingRequest ||
+		code == types.CoARequest ||
+		code == types.DisconnectRequest {
 		expected := crypto.ComputeAccountingRequestAuthenticator(byte(code), id, length, data[20:length], secret)
 		if !crypto.EqualConstantTime(expected[:], auth[:]) {
 			return radiuserrors.ErrAuthenticatorMismatch

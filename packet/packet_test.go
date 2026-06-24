@@ -23,6 +23,7 @@
 package packet
 
 import (
+	"encoding/binary"
 	"encoding/hex"
 	"net"
 	"testing"
@@ -30,6 +31,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/wxccs/radius/crypto"
 	radiuserrors "github.com/wxccs/radius/errors"
 	"github.com/wxccs/radius/types"
 )
@@ -350,6 +352,85 @@ func TestPacketAccountingAuthenticator_AutoVerified(t *testing.T) {
 	// Unmarshal with wrong secret fails authenticator verification.
 	p2 := &Packet{}
 	assert.ErrorIs(t, p2.Unmarshal(raw, []byte("wrong-secret")), radiuserrors.ErrAuthenticatorMismatch)
+}
+
+// TestPacketCoADisconnectAuthenticator verifies that CoA-Request and
+// Disconnect-Request use the Accounting-Request authenticator formula
+// (RFC 5176 §2.3), not a caller-supplied random value.
+func TestPacketCoADisconnectAuthenticator(t *testing.T) {
+	t.Run("coa_request_uses_accounting_formula", func(t *testing.T) {
+		secret := []byte("coa-secret")
+		pkt := &Packet{
+			Code:       types.CoARequest,
+			Identifier: 7,
+			Attributes: []Attribute{
+				NewIPAddr(types.AttrNASIPAddress, net.IPv4(10, 0, 0, 1)),
+				NewString(types.AttrAcctSessionID, "sess-coa"),
+			},
+		}
+		raw, err := pkt.Marshal(secret)
+		require.NoError(t, err)
+
+		length := binary.BigEndian.Uint16(raw[2:4])
+		expected := crypto.ComputeAccountingRequestAuthenticator(
+			byte(types.CoARequest), 7, length, raw[20:length], secret)
+		var got [16]byte
+		copy(got[:], raw[4:20])
+		assert.Equal(t, expected, got, "CoA-Request authenticator must be MD5-derived per RFC 5176 §2.3")
+
+		// Unmarshal with correct secret succeeds (auto-verifies).
+		p := &Packet{}
+		require.NoError(t, p.Unmarshal(raw, secret))
+		assert.Equal(t, types.CoARequest, p.Code)
+
+		// Unmarshal with wrong secret fails.
+		bad := &Packet{}
+		assert.ErrorIs(t, bad.Unmarshal(raw, []byte("wrong")), radiuserrors.ErrAuthenticatorMismatch)
+	})
+
+	t.Run("disconnect_request_uses_accounting_formula", func(t *testing.T) {
+		secret := []byte("dm-secret")
+		pkt := &Packet{
+			Code:       types.DisconnectRequest,
+			Identifier: 9,
+			Attributes: []Attribute{
+				NewIPAddr(types.AttrNASIPAddress, net.IPv4(10, 0, 0, 2)),
+				NewString(types.AttrAcctSessionID, "sess-dm"),
+			},
+		}
+		raw, err := pkt.Marshal(secret)
+		require.NoError(t, err)
+
+		length := binary.BigEndian.Uint16(raw[2:4])
+		expected := crypto.ComputeAccountingRequestAuthenticator(
+			byte(types.DisconnectRequest), 9, length, raw[20:length], secret)
+		var got [16]byte
+		copy(got[:], raw[4:20])
+		assert.Equal(t, expected, got, "Disconnect-Request authenticator must be MD5-derived per RFC 5176 §2.3")
+
+		p := &Packet{}
+		require.NoError(t, p.Unmarshal(raw, secret))
+		assert.Equal(t, types.DisconnectRequest, p.Code)
+
+		bad := &Packet{}
+		assert.ErrorIs(t, bad.Unmarshal(raw, []byte("wrong")), radiuserrors.ErrAuthenticatorMismatch)
+	})
+
+	t.Run("caller_authenticator_ignored_for_coa", func(t *testing.T) {
+		// A caller-supplied Authenticator must NOT be copied into the packet
+		// for CoA-Request (the MD5 formula overrides it).
+		secret := []byte("coa-secret")
+		pkt := &Packet{
+			Code:          types.CoARequest,
+			Identifier:    1,
+			Authenticator: mustAuth16FromHex(t, "ffffffffffffffffffffffffffffffff"),
+		}
+		raw, err := pkt.Marshal(secret)
+		require.NoError(t, err)
+		var got [16]byte
+		copy(got[:], raw[4:20])
+		assert.NotEqual(t, pkt.Authenticator, got, "CoA-Request must not carry caller-supplied random authenticator")
+	})
 }
 
 func TestPacketAttributeOps(t *testing.T) {
