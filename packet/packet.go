@@ -259,12 +259,19 @@ func VerifyResponseAuthenticator(rawPacket []byte, requestAuth [16]byte, secret 
 
 // VerifyMessageAuthenticator checks the Message-Authenticator attribute (RFC 2869
 // §5.14) carried in rawPacket. The attribute's Value field is zeroed in a copy
-// of the packet before recomputing the HMAC. Returns ErrMessageAuthenticatorMissing
-// if the attribute is absent, or ErrMessageAuthenticatorMismatch on mismatch.
+// of the packet before recomputing the HMAC. For non-Access-Request packets the
+// Authenticator field (bytes 4..20) is also zeroed, because Marshal computes
+// the Message-Authenticator HMAC before the Response/Accounting-Request
+// Authenticator is written; the wire packet's Authenticator field therefore
+// does not match what was used at signing time.
+//
+// Returns ErrMessageAuthenticatorMissing if the attribute is absent, or
+// ErrMessageAuthenticatorMismatch on mismatch.
 func VerifyMessageAuthenticator(rawPacket []byte, secret []byte) error {
 	if len(rawPacket) < types.PacketMinLength {
 		return radiuserrors.ErrShortBuffer
 	}
+	code := types.Code(rawPacket[0])
 	length := binary.BigEndian.Uint16(rawPacket[2:4])
 	if int(length) > len(rawPacket) {
 		return radiuserrors.ErrShortBuffer
@@ -296,6 +303,15 @@ func VerifyMessageAuthenticator(rawPacket []byte, secret []byte) error {
 	copyBuf := append([]byte(nil), rawPacket...)
 	for i := offset + 2; i < offset+18; i++ {
 		copyBuf[i] = 0
+	}
+	// For non-Access-Request packets Marshal computed the HMAC with the
+	// Authenticator field still zero (the Response/Accounting-Request
+	// Authenticator is written afterwards). Zero it here so recomputation
+	// matches the signing-time input.
+	if code != types.AccessRequest {
+		for i := 4; i < 20; i++ {
+			copyBuf[i] = 0
+		}
 	}
 	var received [16]byte
 	copy(received[:], rawPacket[offset+2:offset+18])

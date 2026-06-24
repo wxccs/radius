@@ -543,6 +543,36 @@ func TestPacketMarshal_MultipleMessageAuthenticator(t *testing.T) {
 	assert.ErrorIs(t, err, radiuserrors.ErrInvalidAttribute)
 }
 
+// TestPacketMarshal_MessageAuthenticator_Reply verifies that a reply packet
+// (Access-Accept) carrying Message-Authenticator verifies correctly. The
+// Marshal code computes Message-Authenticator with the Authenticator field
+// zeroed (the Response Authenticator has not yet been written); Verify
+// must mirror this by zeroing the Authenticator field for non-Access-Request
+// packets before recomputing the HMAC.
+func TestPacketMarshal_MessageAuthenticator_Reply(t *testing.T) {
+	ra := mustAuth16FromHex(t, rfcReqAuthHex)
+	pkt := &Packet{
+		Code:          types.AccessAccept,
+		Identifier:    2,
+		Authenticator: ra,
+		Attributes: []Attribute{
+			NewInteger(types.AttrServiceType, 1),
+			NewOctets(types.AttrMessageAuthenticator, make([]byte, 16)),
+		},
+	}
+	raw, err := pkt.Marshal([]byte(rfcSecret))
+	require.NoError(t, err)
+
+	require.NoError(t, VerifyMessageAuthenticator(raw, []byte(rfcSecret)))
+	require.NoError(t, VerifyResponseAuthenticator(raw, ra, []byte(rfcSecret)))
+
+	// Tampering with the reply body must invalidate Message-Authenticator.
+	tampered := append([]byte(nil), raw...)
+	tampered[22] ^= 0xff
+	assert.ErrorIs(t, VerifyMessageAuthenticator(tampered, []byte(rfcSecret)),
+		radiuserrors.ErrMessageAuthenticatorMismatch)
+}
+
 func TestPacketPaddingIgnored(t *testing.T) {
 	// Construct a valid Access-Accept and append trailing padding bytes.
 	pkt := &Packet{
