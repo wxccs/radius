@@ -42,6 +42,8 @@ jobs:
           args: --timeout=5m
 
       - name: Test with coverage
+        env:
+          CGO_ENABLED: "1"
         run: |
           go test -race -coverprofile=coverage.out -covermode=atomic ./...
           go tool cover -func=coverage.out | tee coverage-func.txt
