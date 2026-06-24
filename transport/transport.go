@@ -49,6 +49,9 @@ import (
 	"net"
 	"os"
 
+	piondtls "github.com/pion/dtls/v2"
+	"github.com/pion/transport/v2/udp"
+
 	radiuslog "github.com/wxccs/radius/log"
 )
 
@@ -86,10 +89,25 @@ func withFunc(name string) radiuslog.Logger {
 }
 
 // isClosed reports whether err indicates the underlying socket or
-// connection has been closed. Matches net.ErrClosed as exposed by the
-// standard library since Go 1.16.
+// connection has been closed. Matches:
+//
+//   - net.ErrClosed (standard library, surfaced by TCP/UDP/TLS)
+//   - pion/dtls ErrConnClosed (DTLS connection closed by peer or self)
+//   - pion/transport udp.ErrClosedListener (DTLS listener closed)
+//
+// pion's sentinels do not unwrap to net.ErrClosed, so they must be
+// matched explicitly.
 func isClosed(err error) bool {
-	return errors.Is(err, net.ErrClosed)
+	if errors.Is(err, net.ErrClosed) {
+		return true
+	}
+	if errors.Is(err, piondtls.ErrConnClosed) {
+		return true
+	}
+	if errors.Is(err, udp.ErrClosedListener) {
+		return true
+	}
+	return false
 }
 
 // isTimeout reports whether err is a deadline-exceeded error from the
