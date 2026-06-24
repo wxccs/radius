@@ -20,24 +20,48 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 // SOFTWARE.
 
-// Package main is the entry point for the radius-tool command-line utility.
-//
-// radius-tool is a thin CLI wrapper around the client and server packages.
-// It supports four client modes — access, account, coa, disconnect — and a
-// server mode that echoes Access-Request with Access-Accept for quick
-// smoke testing. Configuration is layered via viper (flags > env > file),
-// and logging uses logrus, bridged into the library via the log.SlogAdapter
-// so library internals observe the same structured output as the CLI.
 package main
 
 import (
 	"fmt"
-	"os"
+
+	"github.com/spf13/cobra"
+
+	"github.com/wxccs/radius/protocol"
 )
 
-func main() {
-	if err := newRootCmd().Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, "error:", err)
-		os.Exit(1)
+func newCoACmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "coa",
+		Short: "Send a CoA-Request (RFC 5176)",
+		Long:  "Send a RADIUS Change-of-Authorization-Request and print the CoA-ACK/NAK reply.",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := ensureTimeoutPositive(); err != nil {
+				return err
+			}
+			attrs, err := attrsFromFlags(cmd)
+			if err != nil {
+				return err
+			}
+
+			c, closeFn, err := newClient()
+			if err != nil {
+				return err
+			}
+			defer closeFn()
+
+			ctx, cancel := callCtx()
+			defer cancel()
+
+			resp, err := c.SendCoA(ctx, &protocol.CoARequest{Attributes: attrs})
+			if err != nil {
+				return fmt.Errorf("coa-request failed: %w", err)
+			}
+			fmt.Printf("Reply: %s (id=%d)\n", resp.Code, resp.Identifier)
+			printAttrs(resp.Attributes)
+			return nil
+		},
 	}
+	cmd.Flags().StringArray("attr", nil, "attribute as type:value (repeatable). CoA-Request auto-includes Message-Authenticator.")
+	return cmd
 }
