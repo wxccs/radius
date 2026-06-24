@@ -53,6 +53,11 @@ var (
 	ErrInvalidAttribute = New("invalid attribute")
 	ErrAttributeTooLong = New("attribute value exceeds 253 octets")
 	ErrUnknownAttribute = New("unknown attribute type")
+
+	// ErrUnsupportedValueType is returned by dictionary-aware helpers in
+	// the packet package when the attribute's ValueType cannot be encoded
+	// or decoded by the helper (currently TypeVSA and TypeExtended).
+	ErrUnsupportedValueType = New("unsupported attribute value type")
 )
 
 // Crypto and secret errors.

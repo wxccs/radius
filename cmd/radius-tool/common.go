@@ -1,25 +1,3 @@
-// SPDX-License-Identifier: MIT
-//
-// Copyright (c) 2026 Daniel Wu
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in all
-// copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-// SOFTWARE.
-
 package main
 
 import (
@@ -33,9 +11,9 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/wxccs/radius/client"
+	"github.com/wxccs/radius/dictionary"
 	"github.com/wxccs/radius/packet"
 	"github.com/wxccs/radius/protocol"
-	"github.com/wxccs/radius/types"
 )
 
 // resolveServerAddr parses host:port into a UDP and a TCP address.
@@ -98,149 +76,99 @@ func callCtx() (context.Context, context.CancelFunc) {
 }
 
 // attrsFromFlags builds a packet.Attribute slice from repeated --attr
-// flags. Each flag value is "type:value" where type is a numeric or a
-// well-known name (e.g. "User-Name") and value is parsed as a string,
-// integer (decimal), or IP address based on heuristics.
+// flags. Each flag value is "type:value" where type is either a numeric
+// byte (1..255) or the canonical attribute name from the dictionary (e.g.
+// "User-Name"). Names are case-insensitive and may use any dash-cased
+// variant ("user-name", "USER-NAME"). The value is encoded using the
+// dictionary's ValueType when the type is registered; otherwise the value
+// is stored verbatim as a string.
 func attrsFromFlags(cmd *cobra.Command) ([]packet.Attribute, error) {
 	rawAttrs, err := cmd.Flags().GetStringArray("attr")
 	if err != nil {
 		return nil, err
 	}
+	dict := dictionary.Default()
 	out := make([]packet.Attribute, 0, len(rawAttrs))
 	for _, raw := range rawAttrs {
 		parts := strings.SplitN(raw, ":", 2)
 		if len(parts) != 2 {
 			return nil, fmt.Errorf("invalid --attr %q: expected type:value", raw)
 		}
-		attrType, err := resolveAttrType(parts[0])
+		attrType, name, err := resolveAttrType(parts[0])
 		if err != nil {
 			return nil, err
 		}
-		value, err := encodeAttrValue(attrType, parts[1])
-		if err != nil {
-			return nil, err
+		// When the type is in the dictionary, defer to packet.NewByName so
+		// the value is encoded per ValueType (integer, IP, string, etc.).
+		if name != "" {
+			a, err := packet.NewByName(dict, name, parts[1])
+			if err != nil {
+				return nil, fmt.Errorf("invalid --attr %q: %w", raw, err)
+			}
+			out = append(out, a)
+			continue
 		}
-		out = append(out, packet.Attribute{Type: attrType, Value: value})
+		out = append(out, packet.NewString(attrType, parts[1]))
 	}
 	return out, nil
 }
 
 // resolveAttrType maps a name or numeric string to a RADIUS attribute type.
-// A small subset of common names is supported; numeric values pass through.
-func resolveAttrType(name string) (byte, error) {
+// Names are looked up in dictionary.Default(); case-insensitive variants
+// are normalized to the canonical "User-Name" form before lookup. Returns
+// the type byte plus the canonical name (empty when the type was supplied
+// numerically and is not registered in the dictionary).
+func resolveAttrType(name string) (byte, string, error) {
 	if n, err := strconv.Atoi(name); err == nil {
 		if n < 1 || n > 255 {
-			return 0, fmt.Errorf("attribute type %d out of range (1..255)", n)
+			return 0, "", fmt.Errorf("attribute type %d out of range (1..255)", n)
 		}
-		return byte(n), nil
+		t := byte(n)
+		// Surface the canonical name when the numeric type is registered.
+		if def, ok := dictionary.Default().Lookup(t); ok {
+			return t, def.Name, nil
+		}
+		return t, "", nil
 	}
-	switch strings.ToLower(name) {
-	case "user-name":
-		return types.AttrUserName, nil
-	case "user-password":
-		return types.AttrUserPassword, nil
-	case "nas-ip-address":
-		return types.AttrNASIPAddress, nil
-	case "nas-port":
-		return types.AttrNASPort, nil
-	case "service-type":
-		return types.AttrServiceType, nil
-	case "nas-identifier":
-		return types.AttrNASIdentifier, nil
-	case "acct-status-type":
-		return types.AttrAcctStatusType, nil
-	case "acct-session-id":
-		return types.AttrAcctSessionID, nil
-	case "acct-session-time":
-		return types.AttrAcctSessionTime, nil
-	case "session-timeout":
-		return types.AttrSessionTimeout, nil
-	case "reply-message":
-		return types.AttrReplyMessage, nil
-	case "state":
-		return types.AttrState, nil
-	case "message-authenticator":
-		return types.AttrMessageAuthenticator, nil
-	case "error-cause":
-		return types.AttrErrorCause, nil
-	default:
-		return 0, fmt.Errorf("unknown attribute name %q (use numeric type)", name)
+	dict := dictionary.Default()
+	if def, ok := dict.LookupName(name); ok {
+		return def.Type, def.Name, nil
 	}
+	if canon := canonicalAttrName(name); canon != name {
+		if def, ok := dict.LookupName(canon); ok {
+			return def.Type, def.Name, nil
+		}
+	}
+	return 0, "", fmt.Errorf("unknown attribute name %q (use numeric type or dictionary name)", name)
 }
 
-// encodeAttrValue encodes a string value into the wire format for the
-// attribute type. Integers and IP addresses are detected by type;
-// everything else is treated as a string (octets).
-func encodeAttrValue(attrType byte, value string) ([]byte, error) {
-	switch attrType {
-	case types.AttrNASIPAddress, types.AttrLoginIPHost:
-		ip := net.ParseIP(value)
-		if ip == nil {
-			return nil, fmt.Errorf("invalid IP for attribute %d: %q", attrType, value)
+// canonicalAttrName normalizes a user-supplied attribute name like
+// "user-name" or "USER-NAME" into the canonical "User-Name" form that the
+// dictionary registers. Empty segments (from leading/trailing dashes) are
+// preserved so obviously malformed input does not silently match.
+func canonicalAttrName(s string) string {
+	parts := strings.Split(s, "-")
+	for i, p := range parts {
+		if p == "" {
+			continue
 		}
-		ip4 := ip.To4()
-		if ip4 == nil {
-			return nil, fmt.Errorf("IPv6 not supported for attribute %d", attrType)
-		}
-		return ip4, nil
-	case types.AttrNASPort, types.AttrServiceType, types.AttrAcctStatusType,
-		types.AttrAcctSessionTime, types.AttrSessionTimeout, types.AttrErrorCause:
-		n, err := strconv.ParseUint(value, 10, 32)
-		if err != nil {
-			return nil, fmt.Errorf("invalid integer for attribute %d: %w", attrType, err)
-		}
-		return packet.NewInteger(attrType, uint32(n)).Value, nil
-	default:
-		return []byte(value), nil
+		parts[i] = strings.ToUpper(p[:1]) + strings.ToLower(p[1:])
 	}
+	return strings.Join(parts, "-")
 }
 
-// printAttrs pretty-prints attributes for human consumption.
+// printAttrs pretty-prints attributes for human consumption. Uses the
+// dictionary to render attribute names and typed values; unknown types
+// fall back to a hex dump.
 func printAttrs(attrs []packet.Attribute) {
 	if len(attrs) == 0 {
 		fmt.Println("  (no attributes)")
 		return
 	}
+	dict := dictionary.Default()
 	for _, a := range attrs {
-		fmt.Printf("  Attr %d = %s\n", a.Type, formatAttrValue(a))
+		fmt.Printf("  %s\n", packet.FormatAttribute(a, dict))
 	}
-}
-
-// formatAttrValue renders an attribute value as a string, guessing the
-// type by length and content. IPv4 (4 bytes) is rendered as an IP;
-// otherwise printable strings are shown as quoted text, and everything
-// else falls back to hex.
-func formatAttrValue(a packet.Attribute) string {
-	switch len(a.Value) {
-	case 4:
-		if a.Type == types.AttrNASIPAddress || a.Type == types.AttrLoginIPHost {
-			return net.IP(a.Value).String()
-		}
-		if n, err := a.Integer(); err == nil {
-			return strconv.FormatUint(uint64(n), 10)
-		}
-	case 6:
-		if n, err := a.Integer(); err == nil {
-			return strconv.FormatUint(uint64(n), 10)
-		}
-	}
-	if s, err := a.String(); err == nil && isPrintable(a.Value) {
-		return strconv.Quote(s)
-	}
-	return fmt.Sprintf("%x", a.Value)
-}
-
-// isPrintable reports whether b is a reasonable printable ASCII string.
-func isPrintable(b []byte) bool {
-	if len(b) == 0 {
-		return false
-	}
-	for _, c := range b {
-		if c < 0x20 || c > 0x7e {
-			return false
-		}
-	}
-	return true
 }
 
 // ensureTimeoutPositive guards against zero/negative --timeout values
