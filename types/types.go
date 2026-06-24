@@ -48,7 +48,7 @@ const (
 )
 
 // Packet codes defined by RFC 5176 for Change-of-Authorization and
-// Disconnect-Message flows. Used in Phase 7.
+// Disconnect-Message flows.
 const (
 	CoARequest        Code = 43
 	CoAACK            Code = 44
@@ -211,8 +211,7 @@ const (
 	AttrFramedPool         = 88
 )
 
-// IPv6 attribute type numbers defined by RFC 3162. Full registration of these
-// into the dictionary happens in Phase 4 alongside IPv6 transport support.
+// IPv6 attribute type numbers defined by RFC 3162.
 const (
 	AttrNASIPv6Address    = 95
 	AttrFramedInterfaceID = 96
@@ -222,8 +221,7 @@ const (
 	AttrFramedIPv6Pool    = 100
 )
 
-// Tunnel attribute type numbers defined by RFC 2868. Registered into the
-// dictionary in Phase 6 alongside tunnel-protocol support.
+// Tunnel attribute type numbers defined by RFC 2868.
 const (
 	AttrTunnelType           = 64
 	AttrTunnelMediumType     = 65

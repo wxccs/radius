@@ -61,7 +61,7 @@ const (
 	// TypeVSA marks a Vendor-Specific attribute (Type 26) whose Value begins
 	// with a 4-byte Vendor-Id followed by vendor-defined data.
 	TypeVSA
-	// TypeExtended marks an RFC 6929 extended attribute. Reserved for Phase 6.
+	// TypeExtended marks an RFC 6929 extended attribute.
 	TypeExtended
 )
 
@@ -99,9 +99,9 @@ type AttributeDef struct {
 	// attributes whose Value is hidden using the RFC 2865 §5.2 algorithm.
 	// Other values are reserved for future RFCs.
 	Encrypt int
-	// HasTag is true for RFC 2868 tagged attributes. Tagged attribute support
-	// is implemented in Phase 6; the flag is recorded here so that the
-	// dictionary can be populated ahead of the codec.
+	// HasTag is true for RFC 2868 tagged attributes. Tagged attribute
+	// encoding/decoding is handled by the crypto package (EncodeTunnelTag /
+	// DecodeTunnelTag).
 	HasTag bool
 }
 

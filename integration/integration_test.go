@@ -46,11 +46,11 @@ import (
 
 const testSecret = "integration-secret"
 
-// callTimeout bounds each client call. We pass an explicit deadline because
-// client.Config.Timeout is not yet wired through the protocol layer; the CLI
-// applies its own deadline via context.WithTimeout, and tests do the same.
-// 10s leaves room for the default retransmit policy (2s/4s/8s backoff) to
-// complete a couple of attempts under contention.
+// callTimeout bounds each client call. We pass an explicit deadline so a
+// hung server fails the test fast; production callers can rely on
+// client.Config.Timeout as a fallback instead. 10s leaves room for the
+// default retransmit policy (2s/4s/8s backoff) to complete a couple of
+// attempts under contention.
 const callTimeout = 10 * time.Second
 
 // loopbackHandler records the last request seen and replies with a
