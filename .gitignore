@@ -1,6 +1,7 @@
 # Binaries
 /bin/
 /radius-tool
+/dict-gen
 *.exe
 *.test
 *.out
