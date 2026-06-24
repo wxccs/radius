@@ -43,6 +43,8 @@ package server
 import (
 	"context"
 	"net"
+	"sync"
+	"time"
 
 	radiuslog "github.com/wxccs/radius/log"
 	"github.com/wxccs/radius/packet"
@@ -115,7 +117,9 @@ type UDPServer struct {
 	listener *transport.UDPTransport
 	handler  Handler
 	lookup   SecretLookup
+	dedup    *Deduplicator
 	log      radiuslog.Logger
+	wg       sync.WaitGroup
 }
 
 // UDPOption configures a UDPServer at construction time.
@@ -131,6 +135,14 @@ func WithUDPLogger(l radiuslog.Logger) UDPOption {
 		}
 		s.log = l
 	}
+}
+
+// WithUDPDedup enables RFC 2865 §2.5 duplicate detection. The Deduplicator
+// caches (remoteAddr, identifier) tuples for ttl and retransmits the cached
+// reply instead of re-invoking the handler when a duplicate is observed
+// within the window. A ttl of zero selects the RFC default of 5 seconds.
+func WithUDPDedup(ttl time.Duration) UDPOption {
+	return func(s *UDPServer) { s.dedup = NewDeduplicator(ttl) }
 }
 
 // NewUDPServer binds a UDP socket on laddr and returns a Server ready to
@@ -161,8 +173,9 @@ func (s *UDPServer) LocalAddr() net.Addr { return s.listener.LocalAddr() }
 // in its own goroutine so a slow handler does not block other clients.
 //
 // Canceling ctx does not interrupt an in-flight ReadPacket on the
-// underlying UDP socket; callers shutting down should also call Close to
-// release the reader.
+// underlying UDP socket; callers shutting down should also call Close
+// (or Shutdown, which waits for in-flight handlers to finish) to release
+// the reader.
 func (s *UDPServer) Serve(ctx context.Context) error {
 	log := s.log.With("func", "server.UDPServer.Serve")
 	for {
@@ -176,7 +189,11 @@ func (s *UDPServer) Serve(ctx context.Context) error {
 			log.Warn("dropping packet from unknown client", "src", src.String())
 			continue
 		}
-		go s.handleOne(ctx, raw, src, secret)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.handleOne(ctx, raw, src, secret)
+		}()
 	}
 }
 
@@ -196,6 +213,18 @@ func (s *UDPServer) handleOne(ctx context.Context, raw []byte, src net.Addr, sec
 		"src", src.String(),
 		"code", pkt.Code.String(),
 		"id", int(pkt.Identifier))
+
+	// RFC 2865 §2.5 duplicate detection. When the server has seen the
+	// same (source, identifier) within the dedup window, retransmit the
+	// cached reply (if available) instead of re-running the handler.
+	// Duplicates whose original reply is not yet published are dropped.
+	if s.dedup != nil && s.dedup.Seen(src, pkt.Identifier) {
+		log.Debug("duplicate request", "src", src.String(), "id", int(pkt.Identifier))
+		if cached, ok := s.dedup.Lookup(src, pkt.Identifier); ok {
+			_ = s.listener.SendPacket(cached, src)
+		}
+		return
+	}
 
 	req := &Request{
 		Packet:     pkt,
@@ -222,6 +251,9 @@ func (s *UDPServer) handleOne(ctx context.Context, raw []byte, src net.Addr, sec
 			"error", err)
 		return
 	}
+	if s.dedup != nil {
+		s.dedup.Store(src, pkt.Identifier, out)
+	}
 	if err := s.listener.SendPacket(out, src); err != nil {
 		log.Warn("send reply failed",
 			"src", src.String(),
@@ -245,7 +277,33 @@ func (s *UDPServer) mapReadErr(ctx context.Context, err error) error {
 
 // Close releases the underlying socket. Safe to call concurrently with
 // Serve; the in-flight ReadPacket will return an error and Serve will exit.
+// Close does not wait for in-flight handlers to finish — use Shutdown for
+// that.
 func (s *UDPServer) Close() error { return s.listener.Close() }
+
+// Shutdown stops accepting new requests and waits for in-flight handlers
+// to complete or ctx to expire. The underlying socket is closed first so
+// Serve exits its read loop; then Shutdown blocks on the WaitGroup tracking
+// handler goroutines. A nil error indicates all handlers finished; a
+// context error indicates the caller gave up waiting (the handlers may
+// still be running in the background).
+//
+// Shutdown is idempotent: calling it multiple times is safe, but only the
+// first call's deadline is honored for waiting.
+func (s *UDPServer) Shutdown(ctx context.Context) error {
+	_ = s.listener.Close()
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // TCPServer listens for RADIUS-over-TCP connections (RFC 6613). Each
 // accepted connection is handled in its own goroutine; requests on a
@@ -255,7 +313,9 @@ type TCPServer struct {
 	listener *transport.TCPListener
 	handler  Handler
 	lookup   SecretLookup
+	dedup    *Deduplicator
 	log      radiuslog.Logger
+	wg       sync.WaitGroup
 }
 
 // TCPOption configures a TCPServer at construction time.
@@ -270,6 +330,13 @@ func WithTCPLogger(l radiuslog.Logger) TCPOption {
 		}
 		s.log = l
 	}
+}
+
+// WithTCPDedup enables RFC 2865 §2.5 duplicate detection. The TTL is the
+// window within which a duplicate (remoteAddr, identifier) is recognized.
+// A ttl of zero selects the RFC default of 5 seconds.
+func WithTCPDedup(ttl time.Duration) TCPOption {
+	return func(s *TCPServer) { s.dedup = NewDeduplicator(ttl) }
 }
 
 // NewTCPServer binds a TCP socket on laddr.
@@ -306,7 +373,11 @@ func (s *TCPServer) Serve(ctx context.Context) error {
 			return err
 		}
 		log.Info("connection accepted", "remote", conn.RemoteAddr().String())
-		go s.handleConn(ctx, conn)
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			s.handleConn(ctx, conn)
+		}()
 	}
 }
 
@@ -340,6 +411,18 @@ func (s *TCPServer) handleConn(ctx context.Context, conn *transport.TCPConn) {
 			// RADIUS Length field qualifies.
 			return
 		}
+		// RFC 2865 §2.5 duplicate detection (mainly relevant for
+		// CoA/Disconnect over TCP, where a single client may open
+		// multiple connections with the same Identifier).
+		if s.dedup != nil && s.dedup.Seen(conn.RemoteAddr(), pkt.Identifier) {
+			log.Debug("duplicate request",
+				"remote", conn.RemoteAddr().String(),
+				"id", int(pkt.Identifier))
+			if cached, ok := s.dedup.Lookup(conn.RemoteAddr(), pkt.Identifier); ok {
+				_ = conn.WritePacket(cached)
+			}
+			continue
+		}
 		req := &Request{
 			Packet:     pkt,
 			Secret:     secret,
@@ -364,6 +447,9 @@ func (s *TCPServer) handleConn(ctx context.Context, conn *transport.TCPConn) {
 				"error", err)
 			return
 		}
+		if s.dedup != nil {
+			s.dedup.Store(conn.RemoteAddr(), pkt.Identifier, out)
+		}
 		if err := conn.WritePacket(out); err != nil {
 			log.Warn("send reply failed",
 				"remote", conn.RemoteAddr().String(),
@@ -374,8 +460,26 @@ func (s *TCPServer) handleConn(ctx context.Context, conn *transport.TCPConn) {
 	}
 }
 
-// Close releases the underlying listener.
+// Close releases the underlying listener. Does not wait for in-flight
+// handlers; use Shutdown for graceful termination.
 func (s *TCPServer) Close() error { return s.listener.Close() }
+
+// Shutdown stops accepting new connections and waits for in-flight
+// per-connection goroutines to finish or ctx to expire.
+func (s *TCPServer) Shutdown(ctx context.Context) error {
+	_ = s.listener.Close()
+	done := make(chan struct{})
+	go func() {
+		s.wg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
 
 // ipFromAddr extracts the IP portion of a net.Addr. Returns nil for
 // non-IP addresses (which will then fail SecretLookup and be dropped).
