@@ -70,7 +70,7 @@ func TestUDPServer_Authenticate(t *testing.T) {
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
 		h, StaticSecret(secret))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	addr, ok := srv.LocalAddr().(*net.UDPAddr)
 	require.True(t, ok)
@@ -86,7 +86,7 @@ func TestUDPServer_Authenticate(t *testing.T) {
 		Retransmit: protocol.RetransmitPolicy{MaxAttempts: 1},
 	})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	resp, err := c.Authenticate(context.Background(), &protocol.AccessRequest{
 		Attributes: []packet.Attribute{
@@ -109,7 +109,7 @@ func TestUDPServer_DropsUnknownClient(t *testing.T) {
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
 		h, func(net.IP) ([]byte, bool) { return nil, false })
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	addr, ok := srv.LocalAddr().(*net.UDPAddr)
 	require.True(t, ok)
@@ -123,7 +123,7 @@ func TestUDPServer_DropsUnknownClient(t *testing.T) {
 		Retransmit: protocol.RetransmitPolicy{MaxAttempts: 1, Initial: 20 * time.Millisecond, Max: 20 * time.Millisecond},
 	})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	callCtx, callCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer callCancel()
@@ -146,7 +146,7 @@ func TestUDPServer_HandlerReturnsNil(t *testing.T) {
 		}),
 		StaticSecret(secret))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	addr, ok := srv.LocalAddr().(*net.UDPAddr)
 	require.True(t, ok)
@@ -160,7 +160,7 @@ func TestUDPServer_HandlerReturnsNil(t *testing.T) {
 		Retransmit: protocol.RetransmitPolicy{MaxAttempts: 1, Initial: 20 * time.Millisecond, Max: 20 * time.Millisecond},
 	})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	callCtx, callCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer callCancel()
@@ -177,7 +177,7 @@ func TestUDPServer_MalformedPacketDropped(t *testing.T) {
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
 		h, StaticSecret(secret))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	addr, ok := srv.LocalAddr().(*net.UDPAddr)
 	require.True(t, ok)
@@ -190,7 +190,7 @@ func TestUDPServer_MalformedPacketDropped(t *testing.T) {
 	// Send a raw malformed packet directly over a plain UDP socket.
 	conn, err := net.DialUDP("udp4", nil, addr)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// 4 bytes is below PacketMinLength; server must drop silently.
 	_, err = conn.Write([]byte{1, 2, 3, 4})
@@ -210,7 +210,7 @@ func TestTCPServer_Authenticate(t *testing.T) {
 		&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
 		h, StaticSecret(secret))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	addr, ok := srv.LocalAddr().(*net.TCPAddr)
 	require.True(t, ok)
@@ -222,7 +222,7 @@ func TestTCPServer_Authenticate(t *testing.T) {
 
 	c, err := client.NewTCPClient(addr, secret, client.Config{})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	resp, err := c.Authenticate(context.Background(), &protocol.AccessRequest{
 		Attributes: []packet.Attribute{
@@ -241,7 +241,7 @@ func TestTCPServer_DropsUnknownClient(t *testing.T) {
 		&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
 		h, func(net.IP) ([]byte, bool) { return nil, false })
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -252,7 +252,7 @@ func TestTCPServer_DropsUnknownClient(t *testing.T) {
 	// the server because the client IP is not in the secret table.
 	conn, err := net.DialTCP("tcp4", nil, srv.LocalAddr().(*net.TCPAddr))
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Send a valid Access-Request; the server should close the connection
 	// without replying.
@@ -269,7 +269,7 @@ func TestTCPServer_DropsUnknownClient(t *testing.T) {
 
 	// Read should return EOF (connection closed by server) or a short read.
 	buf := make([]byte, 4096)
-	conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 	n, err := conn.Read(buf)
 	assert.Error(t, err, "server should close connection from unknown client")
 	assert.Equal(t, 0, n)
@@ -353,7 +353,7 @@ func TestUDPServer_ServeContextCancel(t *testing.T) {
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
 		&echoHandler{}, StaticSecret([]byte("s")))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	serveErr := make(chan error, 1)
@@ -406,7 +406,7 @@ func TestUDPServer_HandlerError(t *testing.T) {
 		}),
 		StaticSecret(secret))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	addr := srv.LocalAddr().(*net.UDPAddr)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -418,7 +418,7 @@ func TestUDPServer_HandlerError(t *testing.T) {
 		Retransmit: protocol.RetransmitPolicy{MaxAttempts: 1, Initial: 20 * time.Millisecond, Max: 20 * time.Millisecond},
 	})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	callCtx, callCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer callCancel()
@@ -442,7 +442,7 @@ func TestUDPServer_MarshalReplyError(t *testing.T) {
 		}),
 		StaticSecret(secret))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	addr := srv.LocalAddr().(*net.UDPAddr)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -454,7 +454,7 @@ func TestUDPServer_MarshalReplyError(t *testing.T) {
 		Retransmit: protocol.RetransmitPolicy{MaxAttempts: 1, Initial: 20 * time.Millisecond, Max: 20 * time.Millisecond},
 	})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	callCtx, callCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer callCancel()
@@ -470,7 +470,7 @@ func TestUDPServer_WithLogger(t *testing.T) {
 		&echoHandler{}, StaticSecret([]byte("s")),
 		WithUDPLogger(nil))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 	assert.NotNil(t, srv.log)
 
 	srv2, err := NewUDPServer("udp4",
@@ -478,7 +478,7 @@ func TestUDPServer_WithLogger(t *testing.T) {
 		&echoHandler{}, StaticSecret([]byte("s")),
 		WithUDPLogger(nil))
 	require.NoError(t, err)
-	defer srv2.Close()
+	defer func() { _ = srv2.Close() }()
 }
 
 func TestTCPServer_WithLogger(t *testing.T) {
@@ -487,7 +487,7 @@ func TestTCPServer_WithLogger(t *testing.T) {
 		&echoHandler{}, StaticSecret([]byte("s")),
 		WithTCPLogger(nil))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 	assert.NotNil(t, srv.log)
 }
 
@@ -500,7 +500,7 @@ func TestTCPServer_HandlerReturnsNil(t *testing.T) {
 		}),
 		StaticSecret(secret))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	addr := srv.LocalAddr().(*net.TCPAddr)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -513,7 +513,7 @@ func TestTCPServer_HandlerReturnsNil(t *testing.T) {
 	// should time out rather than EOF.
 	c, err := client.NewTCPClient(addr, secret, client.Config{})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	callCtx, callCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer callCancel()
@@ -530,7 +530,7 @@ func TestTCPServer_MalformedPacketClosesConnection(t *testing.T) {
 		&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
 		h, StaticSecret(secret))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	addr := srv.LocalAddr().(*net.TCPAddr)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -540,14 +540,14 @@ func TestTCPServer_MalformedPacketClosesConnection(t *testing.T) {
 
 	conn, err := net.DialTCP("tcp4", nil, addr)
 	require.NoError(t, err)
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 
 	// Send a 4-byte short packet (below PacketMinLength). The server's
 	// ReadPacket will fail with ErrMalformedPacket and close the connection.
 	_, err = conn.Write([]byte{1, 2, 3, 4})
 	require.NoError(t, err)
 
-	conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+	_ = conn.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
 	buf := make([]byte, 4096)
 	_, err = conn.Read(buf)
 	assert.Error(t, err, "server must close the connection on a malformed packet")
@@ -558,7 +558,7 @@ func TestTCPServer_ServeContextCancel(t *testing.T) {
 		&net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
 		&echoHandler{}, StaticSecret([]byte("s")))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	serveErr := make(chan error, 1)
@@ -594,7 +594,7 @@ func TestWithUDPLogger_Real(t *testing.T) {
 		&echoHandler{}, StaticSecret([]byte("s")),
 		WithUDPLogger(radiuslog.NopLogger{}))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 }
 
 func TestWithTCPLogger_Real(t *testing.T) {
@@ -603,7 +603,7 @@ func TestWithTCPLogger_Real(t *testing.T) {
 		&echoHandler{}, StaticSecret([]byte("s")),
 		WithTCPLogger(radiuslog.NopLogger{}))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 }
 
 func TestUDPServer_SendReplyFailure(t *testing.T) {
@@ -637,7 +637,7 @@ func TestUDPServer_SendReplyFailure(t *testing.T) {
 		Retransmit: protocol.RetransmitPolicy{MaxAttempts: 1, Initial: 20 * time.Millisecond, Max: 20 * time.Millisecond},
 	})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	callCtx, callCancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer callCancel()
@@ -657,7 +657,7 @@ func TestTCPServer_HandlerErrorClosesConnection(t *testing.T) {
 		}),
 		StaticSecret(secret))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	addr := srv.LocalAddr().(*net.TCPAddr)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -667,7 +667,7 @@ func TestTCPServer_HandlerErrorClosesConnection(t *testing.T) {
 
 	c, err := client.NewTCPClient(addr, secret, client.Config{})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	callCtx, callCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer callCancel()
@@ -690,7 +690,7 @@ func TestTCPServer_MarshalReplyError(t *testing.T) {
 		}),
 		StaticSecret(secret))
 	require.NoError(t, err)
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	addr := srv.LocalAddr().(*net.TCPAddr)
 	ctx, cancel := context.WithCancel(context.Background())
@@ -700,7 +700,7 @@ func TestTCPServer_MarshalReplyError(t *testing.T) {
 
 	c, err := client.NewTCPClient(addr, secret, client.Config{})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	callCtx, callCancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer callCancel()

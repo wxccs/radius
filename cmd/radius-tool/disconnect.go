@@ -48,7 +48,7 @@ func newDisconnectCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defer closeFn()
+			defer func() { _ = closeFn() }()
 
 			ctx, cancel := callCtx()
 			defer cancel()

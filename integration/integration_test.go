@@ -346,7 +346,7 @@ func TestUDP_RetransmissionRecovers(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
-	resp, err := c.Client.Authenticate(ctx, &protocol.AccessRequest{
+	resp, err := c.Authenticate(ctx, &protocol.AccessRequest{
 		Attributes: []packet.Attribute{
 			packet.NewString(types.AttrUserName, "retry-user"),
 		},
@@ -371,7 +371,7 @@ func TestUDP_UnknownSecretDropped(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 
-	_, err = c.Client.Authenticate(ctx, &protocol.AccessRequest{
+	_, err = c.Authenticate(ctx, &protocol.AccessRequest{
 		Attributes: []packet.Attribute{
 			packet.NewString(types.AttrUserName, "bad"),
 		},
@@ -482,7 +482,7 @@ func TestUDP_ConfigTimeoutBareContext(t *testing.T) {
 	defer func() { _ = c.Close() }()
 
 	start := time.Now()
-	_, err = c.Client.Authenticate(ctx, &protocol.AccessRequest{
+	_, err = c.Authenticate(ctx, &protocol.AccessRequest{
 		Attributes: []packet.Attribute{
 			packet.NewString(types.AttrUserName, "timeout-user"),
 		},
@@ -525,7 +525,7 @@ func TestUDP_ConfigTimeoutOverriddenByCallerDeadline(t *testing.T) {
 	defer cancel()
 
 	start := time.Now()
-	_, err = c.Client.Authenticate(callerCtx, &protocol.AccessRequest{
+	_, err = c.Authenticate(callerCtx, &protocol.AccessRequest{
 		Attributes: []packet.Attribute{
 			packet.NewString(types.AttrUserName, "caller-dl-user"),
 		},

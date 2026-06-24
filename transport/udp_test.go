@@ -65,7 +65,7 @@ func startUDPEchoServer(t *testing.T, network string) (*UDPTransport, *net.UDPAd
 func TestListenUDP_BindsEphemeralPort(t *testing.T) {
 	l, err := ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	addr, ok := l.LocalAddr().(*net.UDPAddr)
 	require.True(t, ok)
@@ -75,7 +75,7 @@ func TestListenUDP_BindsEphemeralPort(t *testing.T) {
 func TestUDPTransport_ReadPacket_ContextCanceled(t *testing.T) {
 	l, err := ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -97,7 +97,7 @@ func TestUDPTransport_ReadPacket_AfterClose(t *testing.T) {
 
 func TestUDPTransport_LoopbackExchange(t *testing.T) {
 	srv, srvAddr := startUDPEchoServer(t, "udp4")
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	// Echo goroutine: read one packet, echo it back.
 	go func() {
@@ -112,7 +112,7 @@ func TestUDPTransport_LoopbackExchange(t *testing.T) {
 
 	client, err := DialUDP("udp4", srvAddr, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -123,7 +123,7 @@ func TestUDPTransport_LoopbackExchange(t *testing.T) {
 
 func TestUDPTransport_LoopbackExchange_IPv6(t *testing.T) {
 	srv, srvAddr := startUDPEchoServer(t, "udp6")
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
@@ -137,7 +137,7 @@ func TestUDPTransport_LoopbackExchange_IPv6(t *testing.T) {
 
 	client, err := DialUDP("udp6", srvAddr, &net.UDPAddr{IP: net.ParseIP("::1"), Port: 0})
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
 	defer cancel()
@@ -149,18 +149,18 @@ func TestUDPTransport_LoopbackExchange_IPv6(t *testing.T) {
 func TestUDPClient_StrayPacketDiscarded(t *testing.T) {
 	// Real server: doesn't reply within deadline.
 	srv, srvAddr := startUDPEchoServer(t, "udp4")
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	// Stray sender: sends from a *different* port than srvAddr.
 	stray, err := DialUDP("udp4", srvAddr, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer stray.Close()
+	defer func() { _ = stray.Close() }()
 
 	// Discover client's local address by dialing first, then send a stray
 	// datagram from a different source.
 	client, err := DialUDP("udp4", srvAddr, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	clientLocal, ok := client.LocalAddr().(*net.UDPAddr)
 	require.True(t, ok)
@@ -171,7 +171,7 @@ func TestUDPClient_StrayPacketDiscarded(t *testing.T) {
 	// and discard it because src != srvAddr).
 	strayToClient, err := net.DialUDP("udp4", nil, clientLocal)
 	require.NoError(t, err)
-	defer strayToClient.Close()
+	defer func() { _ = strayToClient.Close() }()
 	_, _ = strayToClient.Write([]byte("noise"))
 
 	// Have the real server reply with the legitimate payload.
@@ -195,11 +195,11 @@ func TestUDPClient_StrayPacketDiscarded(t *testing.T) {
 func TestUDPClient_Timeout(t *testing.T) {
 	// Server accepts but never replies.
 	srv, srvAddr := startUDPEchoServer(t, "udp4")
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	client, err := DialUDP("udp4", srvAddr, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -211,7 +211,7 @@ func TestUDPClient_Timeout(t *testing.T) {
 
 func TestUDPClient_ClosedBeforeExchange(t *testing.T) {
 	srv, srvAddr := startUDPEchoServer(t, "udp4")
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	client, err := DialUDP("udp4", srvAddr, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
@@ -233,11 +233,11 @@ func TestUDPTransport_SendPacket_AfterClose(t *testing.T) {
 
 func TestUDPTransport_ConcurrentSend(t *testing.T) {
 	srv, srvAddr := startUDPEchoServer(t, "udp4")
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 
 	client, err := DialUDP("udp4", srvAddr, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Receive loop on server side: echo each datagram back.
 	var wg sync.WaitGroup
@@ -324,22 +324,22 @@ func TestIsClosed(t *testing.T) {
 func TestUDPTransport_LocalAddr(t *testing.T) {
 	l, err := ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer l.Close()
+	defer func() { _ = l.Close() }()
 	assert.NotNil(t, l.LocalAddr())
 }
 
 func TestUDPClient_LocalAddr(t *testing.T) {
 	srv, srvAddr := startUDPEchoServer(t, "udp4")
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 	client, err := DialUDP("udp4", srvAddr, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	assert.NotNil(t, client.LocalAddr())
 }
 
 func TestUDPClient_Exchange_WriteAfterClose(t *testing.T) {
 	srv, srvAddr := startUDPEchoServer(t, "udp4")
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 	client, err := DialUDP("udp4", srvAddr, &net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
 	require.NoError(t, client.Close())

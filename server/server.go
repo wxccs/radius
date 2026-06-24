@@ -315,7 +315,7 @@ func (s *TCPServer) Serve(ctx context.Context) error {
 // mandates closing the connection on a framing error).
 func (s *TCPServer) handleConn(ctx context.Context, conn *transport.TCPConn) {
 	log := s.log.With("func", "server.TCPServer.handleConn")
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	remoteIP := ipFromAddr(conn.RemoteAddr())
 	secret, ok := s.lookup(remoteIP)
 	if !ok {

@@ -50,7 +50,7 @@ func TestDefault_InitiallyNop(t *testing.T) {
 	// SetDefault; instead we verify the type is NopLogger via a fresh
 	// package-level snapshot taken in TestMain. For now just assert it
 	// is non-nil and satisfies the interface.
-	var l Logger = Default
+	var l = Default
 	assert.NotNil(t, l)
 }
 

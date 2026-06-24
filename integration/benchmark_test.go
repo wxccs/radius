@@ -54,7 +54,7 @@ func BenchmarkUDP_AccessRequestRoundTrip(b *testing.B) {
 	if err != nil {
 		b.Fatal(err)
 	}
-	defer srv.Close()
+	defer func() { _ = srv.Close() }()
 	go func() { _ = srv.Serve(ctx) }()
 
 	addr := srv.LocalAddr().(*net.UDPAddr)
@@ -80,7 +80,7 @@ func BenchmarkUDP_AccessRequestRoundTrip(b *testing.B) {
 	b.ResetTimer()
 	for b.Loop() {
 		callCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		resp, err := c.Client.Authenticate(callCtx, req)
+		resp, err := c.Authenticate(callCtx, req)
 		cancel()
 		if err != nil {
 			b.Fatal(err)

@@ -62,7 +62,7 @@ func startTCPEchoServer(t *testing.T, network string) (*TCPListener, *net.TCPAdd
 				return
 			}
 			go func(c *TCPConn) {
-				defer c.Close()
+				defer func() { _ = c.Close() }()
 				for {
 					ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 					data, err := c.ReadPacket(ctx)
@@ -98,7 +98,7 @@ func radiusPacket(code types.Code, payloadLen int) []byte {
 func TestListenTCP_BindsEphemeralPort(t *testing.T) {
 	ln, err := ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	addr, ok := ln.LocalAddr().(*net.TCPAddr)
 	require.True(t, ok)
@@ -108,7 +108,7 @@ func TestListenTCP_BindsEphemeralPort(t *testing.T) {
 func TestTCPListener_Accept_ContextCanceled(t *testing.T) {
 	ln, err := ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
@@ -129,11 +129,11 @@ func TestTCPListener_Accept_AfterClose(t *testing.T) {
 
 func TestTCPConn_LoopbackExchange(t *testing.T) {
 	ln, addr := startTCPEchoServer(t, "tcp4")
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	client, err := DialTCP("tcp4", addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	pkt := radiusPacket(types.AccessRequest, 16)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -145,11 +145,11 @@ func TestTCPConn_LoopbackExchange(t *testing.T) {
 
 func TestTCPConn_LoopbackExchange_IPv6(t *testing.T) {
 	ln, addr := startTCPEchoServer(t, "tcp6")
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	client, err := DialTCP("tcp6", addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	pkt := radiusPacket(types.AccessAccept, 0)
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Second)
@@ -171,7 +171,7 @@ func runMalformedFramingTest(
 	t.Helper()
 	ln, err := ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	addr, _ := ln.LocalAddr().(*net.TCPAddr)
 
@@ -184,14 +184,14 @@ func runMalformedFramingTest(
 			serverErr <- err
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_, err = conn.ReadPacket(ctx)
 		serverErr <- err
 	}()
 
 	c, err := net.DialTCP("tcp4", nil, addr)
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	send(c)
 
 	select {
@@ -241,7 +241,7 @@ func TestTCPConn_ReadPacket_ShortHeader(t *testing.T) {
 		func(c net.Conn) {
 			// Send only 2 bytes of the 4-byte header, then close.
 			_, _ = c.Write([]byte{byte(types.AccessRequest), 0})
-			c.Close()
+			_ = c.Close()
 		},
 		radiuserrors.ErrConnClosed,
 	)
@@ -254,7 +254,7 @@ func TestTCPConn_ReadPacket_ShortPayload(t *testing.T) {
 			// but we close after writing only 2 payload bytes.
 			_, _ = c.Write([]byte{byte(types.AccessRequest), 0, 0, 40})
 			_, _ = c.Write([]byte{0xAA, 0xBB})
-			c.Close()
+			_ = c.Close()
 		},
 		radiuserrors.ErrConnClosed,
 	)
@@ -263,7 +263,7 @@ func TestTCPConn_ReadPacket_ShortPayload(t *testing.T) {
 func TestTCPConn_ReadPacket_Timeout(t *testing.T) {
 	ln, err := ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	addr, _ := ln.LocalAddr().(*net.TCPAddr)
 	errCh := make(chan error, 1)
@@ -275,14 +275,14 @@ func TestTCPConn_ReadPacket_Timeout(t *testing.T) {
 			errCh <- err
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_, err = conn.ReadPacket(ctx)
 		errCh <- err
 	}()
 
 	c, err := net.DialTCP("tcp4", nil, addr)
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	// Don't send anything; the ReadPacket on the server should time out.
 	select {
 	case err := <-errCh:
@@ -300,7 +300,7 @@ func TestTCPConn_ReadPacket_NoDeadlineThenClose(t *testing.T) {
 	// then unblocks when the peer closes the connection.
 	ln, err := ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	addr, _ := ln.LocalAddr().(*net.TCPAddr)
 	errCh := make(chan error, 1)
@@ -310,7 +310,7 @@ func TestTCPConn_ReadPacket_NoDeadlineThenClose(t *testing.T) {
 			errCh <- err
 			return
 		}
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		// No deadline on ctx — exercises the "clear deadline" branch.
 		_, err = conn.ReadPacket(context.Background())
 		errCh <- err
@@ -320,7 +320,7 @@ func TestTCPConn_ReadPacket_NoDeadlineThenClose(t *testing.T) {
 	require.NoError(t, err)
 	// Give the server time to enter ReadPacket, then close to unblock.
 	time.Sleep(50 * time.Millisecond)
-	c.Close()
+	_ = c.Close()
 
 	select {
 	case err := <-errCh:
@@ -333,7 +333,7 @@ func TestTCPConn_ReadPacket_NoDeadlineThenClose(t *testing.T) {
 
 func TestTCPConn_WritePacket_AfterClose(t *testing.T) {
 	ln, addr := startTCPEchoServer(t, "tcp4")
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	client, err := DialTCP("tcp4", addr)
 	require.NoError(t, err)
@@ -346,11 +346,11 @@ func TestTCPConn_WritePacket_AfterClose(t *testing.T) {
 
 func TestTCPConn_ConcurrentWrite(t *testing.T) {
 	ln, addr := startTCPEchoServer(t, "tcp4")
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 
 	client, err := DialTCP("tcp4", addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	// Open a second client to consume the echoed replies so the server
 	// connection does not back up. Actually we just need the write mutex
@@ -394,10 +394,10 @@ func TestIsAccountingCode(t *testing.T) {
 
 func TestTCPConn_LocalAddr(t *testing.T) {
 	ln, addr := startTCPEchoServer(t, "tcp4")
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	client, err := DialTCP("tcp4", addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	assert.NotNil(t, client.LocalAddr())
 	// Also exercise TCPConn.LocalAddr directly (different method from
 	// TCPClient.LocalAddr).
@@ -406,17 +406,17 @@ func TestTCPConn_LocalAddr(t *testing.T) {
 
 func TestTCPConn_RemoteAddr(t *testing.T) {
 	ln, addr := startTCPEchoServer(t, "tcp4")
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	client, err := DialTCP("tcp4", addr)
 	require.NoError(t, err)
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 	ra := client.conn.RemoteAddr()
 	assert.NotNil(t, ra)
 }
 
 func TestTCPClient_Exchange_AfterClose(t *testing.T) {
 	ln, addr := startTCPEchoServer(t, "tcp4")
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	client, err := DialTCP("tcp4", addr)
 	require.NoError(t, err)
 	require.NoError(t, client.Close())
@@ -451,7 +451,7 @@ func TestTCPConn_ReadPacket_SetDeadlineError(t *testing.T) {
 func TestTCPListener_LocalAddr(t *testing.T) {
 	ln, err := ListenTCP("tcp4", &net.TCPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.NoError(t, err)
-	defer ln.Close()
+	defer func() { _ = ln.Close() }()
 	assert.NotNil(t, ln.LocalAddr())
 }
 
@@ -461,8 +461,8 @@ func TestTCPConn_WritePacket_ShortWriteViaPipe(t *testing.T) {
 	// write. This exercises the "short write" branch of WritePacket
 	// (which logs and returns ErrShortBuffer).
 	r, w := io.Pipe()
-	defer r.Close()
-	defer w.Close()
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
 
 	conn := &TCPConn{c: &pipeConn{r: r, w: w}}
 	// Write a 100-byte payload but close the reader after the first 4
@@ -471,7 +471,7 @@ func TestTCPConn_WritePacket_ShortWriteViaPipe(t *testing.T) {
 	go func() {
 		buf := make([]byte, 4)
 		_, _ = r.Read(buf)
-		r.Close()
+		_ = r.Close()
 	}()
 	err := conn.WritePacket(make([]byte, 100))
 	require.Error(t, err)

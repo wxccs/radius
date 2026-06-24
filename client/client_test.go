@@ -78,7 +78,7 @@ func (s *loopbackUDPServer) serve() {
 			continue
 		}
 
-		var replyCode types.Code = types.AccessAccept
+		var replyCode = types.AccessAccept
 		if nameAttr, ok := req.GetOne(types.AttrUserName); ok {
 			if name, err := nameAttr.String(); err == nil && name == "reject" {
 				replyCode = types.AccessReject
@@ -117,7 +117,7 @@ func TestUDPClient_Authenticate_Accept(t *testing.T) {
 		Retransmit: protocol.RetransmitPolicy{MaxAttempts: 1},
 	})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	resp, err := c.Authenticate(context.Background(), &protocol.AccessRequest{
 		Attributes: []packet.Attribute{
@@ -138,7 +138,7 @@ func TestUDPClient_Authenticate_Reject(t *testing.T) {
 		Retransmit: protocol.RetransmitPolicy{MaxAttempts: 1},
 	})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	resp, err := c.Authenticate(context.Background(), &protocol.AccessRequest{
 		Attributes: []packet.Attribute{
@@ -160,7 +160,7 @@ func TestUDPClient_DefaultNetwork(t *testing.T) {
 		Retransmit: protocol.RetransmitPolicy{MaxAttempts: 1},
 	})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	assert.NotNil(t, c.Transport())
 }
 
@@ -174,7 +174,7 @@ func TestUDPClient_RetransmitDefault(t *testing.T) {
 		Timeout: 2 * time.Second,
 	})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 
 	// Issue one call; the server will reply on the first attempt, so the
 	// default policy's 3 attempts collapse into one round trip.
@@ -222,7 +222,7 @@ func (s *loopbackTCPServer) serve() {
 }
 
 func (s *loopbackTCPServer) handleConn(conn *transport.TCPConn) {
-	defer conn.Close()
+	defer func() { _ = conn.Close() }()
 	ctx := context.Background()
 	for {
 		raw, err := conn.ReadPacket(ctx)
@@ -265,7 +265,7 @@ func TestTCPClient_Authenticate(t *testing.T) {
 
 	c, err := NewTCPClient(srv.addr, secret, Config{})
 	require.NoError(t, err)
-	defer c.Close()
+	defer func() { _ = c.Close() }()
 	assert.NotNil(t, c.Transport(), "TCP transport should be accessible")
 
 	resp, err := c.Authenticate(context.Background(), &protocol.AccessRequest{

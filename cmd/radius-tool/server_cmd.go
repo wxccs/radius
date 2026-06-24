@@ -99,7 +99,7 @@ and does not perform rate limiting or duplicate detection.`,
 				if err != nil {
 					return err
 				}
-				defer srv.Close()
+				defer func() { _ = srv.Close() }()
 				fmt.Printf("RADIUS UDP server listening on %s (secret=%q)\n",
 					srv.LocalAddr(), string(secret))
 				return srv.Serve(ctx)
@@ -111,7 +111,7 @@ and does not perform rate limiting or duplicate detection.`,
 				if err != nil {
 					return err
 				}
-				defer srv.Close()
+				defer func() { _ = srv.Close() }()
 				fmt.Printf("RADIUS TCP server listening on %s (secret=%q)\n",
 					srv.LocalAddr(), string(secret))
 				return srv.Serve(ctx)
