@@ -7,7 +7,7 @@ import (
 	"sync"
 	"time"
 
-	piondtls "github.com/pion/dtls/v2"
+	piondtls "github.com/pion/dtls/v3"
 
 	radiuserrors "github.com/wxccs/radius/errors"
 )
@@ -17,9 +17,11 @@ import (
 // offset 2..3 of the RADIUS header delimits each packet on the stream.
 // The packet format itself is unchanged from RFC 2865.
 //
-// A DTLSListener is constructed with a *piondtls.Config that supplies the
-// server certificate. Callers are responsible for rotating certs and
-// for enabling client authentication as required by their deployment.
+// A DTLSListener is constructed via ListenDTLS with at least one
+// certificate supplied through pion's options API
+// (piondtls.WithCertificates). Callers are responsible for rotating
+// certs and for enabling client authentication as required by their
+// deployment.
 //
 // RFC 7360 §2.4 recommends idle timeouts; callers should Close idle
 // connections on both sides.
@@ -29,17 +31,23 @@ type DTLSListener struct {
 
 // ListenDTLS binds a DTLS-wrapped UDP socket on laddr. network is one
 // of "udp", "udp4", or "udp6". A nil laddr selects an ephemeral port
-// on all interfaces. config must supply at least one certificate.
+// on all interfaces. opts must supply at least one certificate via
+// piondtls.WithCertificates; passing no options returns
+// ErrInvalidAttribute.
 //
 // The returned *DTLSListener is ready to Accept; the caller is expected
 // to Close it on shutdown to release the port.
-func ListenDTLS(network string, laddr *net.UDPAddr, config *piondtls.Config) (*DTLSListener, error) {
+//
+// The opts variadic uses pion's recommended options-based API
+// (piondtls.ServerOption) so callers do not have to construct a
+// *piondtls.Config directly.
+func ListenDTLS(network string, laddr *net.UDPAddr, opts ...piondtls.ServerOption) (*DTLSListener, error) {
 	log := withFunc("transport.ListenDTLS")
-	if config == nil || len(config.Certificates) == 0 {
-		return nil, fmt.Errorf("%w: dtls.Config must supply at least one certificate",
+	if len(opts) == 0 {
+		return nil, fmt.Errorf("%w: ListenDTLS requires at least one option (e.g. WithCertificates)",
 			radiuserrors.ErrInvalidAttribute)
 	}
-	ln, err := piondtls.Listen(network, laddr, config)
+	ln, err := piondtls.ListenWithOptions(network, laddr, opts...)
 	if err != nil {
 		log.Error("listen DTLS failed", "error", err)
 		return nil, err
@@ -144,19 +152,30 @@ type DTLSClient struct {
 }
 
 // DialDTLS dials a RADIUS/DTLS server at server. network is one of
-// "udp", "udp4", or "udp6". config supplies the trusted CA pool and
-// any client certificate required for mutual DTLS.
+// "udp", "udp4", or "udp6". opts configures the client via pion's
+// options API (piondtls.ClientOption) — typically
+// piondtls.WithInsecureSkipVerify for loopback testing or
+// piondtls.WithRootCAs for production.
 //
 // The DTLS handshake is performed before DialDTLS returns, so a
 // handshake failure surfaces as an error from DialDTLS rather than
-// the first Exchange call.
-func DialDTLS(network string, server *net.UDPAddr, config *piondtls.Config) (*DTLSClient, error) {
+// the first Exchange call. The handshake is bounded by a 30-second
+// context deadline.
+func DialDTLS(network string, server *net.UDPAddr, opts ...piondtls.ClientOption) (*DTLSClient, error) {
 	log := withFunc("transport.DialDTLS")
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	c, err := piondtls.DialWithContext(ctx, network, server, config)
+	c, err := piondtls.DialWithOptions(network, server, opts...)
 	if err != nil {
 		log.Error("dial DTLS failed", "error", err)
+		return nil, err
+	}
+	// pion/dtls v3 defers the handshake to the first Read/Write. Force
+	// it here so handshake failures surface from DialDTLS rather than
+	// the first Exchange call, mirroring the TLS transport's behavior.
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	if err := c.HandshakeContext(ctx); err != nil {
+		_ = c.Close()
+		log.Error("DTLS handshake failed", "error", err)
 		return nil, err
 	}
 	log.Info("DTLS connection established",

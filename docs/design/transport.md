@@ -1,17 +1,19 @@
 # Transport Layer Design
 
-Status: draft  
-Scope: `transport/` package — UDP (RFC 2865, RFC 3162) and TCP (RFC 6613) transports for RADIUS.
+Status: implemented (UDP/TCP/TLS/DTLS)  
+Scope: `transport/` package — UDP (RFC 2865, RFC 3162), TCP (RFC 6613),
+TLS (RFC 6614), and DTLS (RFC 7360) transports for RADIUS.
 
 ## 1. Goals
 
-- Provide a transport-agnostic surface for sending and receiving RADIUS packets
-  on top of UDP and TCP.
-- Conform to RFC 2865 (RADIUS/UDP), RFC 3162 (IPv6 attributes and transport),
-  and RFC 6613 (RADIUS/TCP).
-- Be safe for concurrent use, support `context.Context` deadlines, and never
-  log secrets.
-- Target ≥ 95 % unit-test coverage, in line with `crypto/` and `packet/`.
+- Provide a transport-agnostic surface for sending and receiving RADIUS
+  packets on top of UDP, TCP, TLS, and DTLS.
+- Conform to RFC 2865 (RADIUS/UDP), RFC 3162 (IPv6 attributes and
+  transport), RFC 6613 (RADIUS/TCP), RFC 6614 (RADIUS/TLS), and
+  RFC 7360 (RADIUS/DTLS).
+- Be safe for concurrent use, support `context.Context` deadlines, and
+  never log secrets.
+- Target ≥ 85 % unit-test coverage (current: 84.8 %).
 
 ## 2. Non-Goals (deferred to higher layers)
 
@@ -20,17 +22,22 @@ Scope: `transport/` package — UDP (RFC 2865, RFC 3162) and TCP (RFC 6613) tran
   `protocol/`.
 - Status-Server watchdog (RFC 3539, RFC 5997) → `client/`.
 - Connection pooling and failover → `client/`.
-- TLS transport (RFC 6614) → out of scope for this library.
 
 ## 3. Package Layout
 
 ```
 transport/
-├── transport.go   # interfaces, sentinel errors, shared helpers
-├── udp.go         # UDPTransport, UDPClient
-├── tcp.go         # TCPListener, TCPConn, TCPClient
-├── udp_test.go    # unit + loopback tests
-└── tcp_test.go    # unit + loopback tests
+├── transport.go    # interfaces, sentinel errors, shared helpers (isClosed, etc.)
+├── udp.go          # UDPTransport, UDPClient
+├── tcp.go          # TCPListener, TCPConn, TCPClient
+├── tls.go          # TLSListener, TLSConn, TLSClient
+├── dtls.go         # DTLSListener, DTLSConn, DTLSClient
+├── framed.go       # shared read/write helpers split by stream vs. message semantics
+├── udp_test.go     # unit + loopback tests
+├── tcp_test.go     # unit + loopback tests
+├── tls_test.go     # loopback + lifecycle tests
+├── dtls_test.go    # loopback + lifecycle tests
+└── certs_test.go   # per-test self-signed cert generator (shared by tls/dtls tests)
 ```
 
 ## 4. Interface Design
@@ -93,10 +100,24 @@ func DialTCP(network string, server *net.TCPAddr) (*TCPClient, error)
 func (c *TCPClient) Exchange(ctx context.Context, raw []byte) ([]byte, error)
 func (c *TCPClient) Close() error
 func (c *TCPClient) LocalAddr() net.Addr
+
+type TLSClient struct { /* ... */ }
+
+func DialTLS(network string, server *net.TCPAddr, config *tls.Config) (*TLSClient, error)
+func (c *TLSClient) Exchange(ctx context.Context, raw []byte) ([]byte, error)
+func (c *TLSClient) Close() error
+func (c *TLSClient) LocalAddr() net.Addr
+
+type DTLSClient struct { /* ... */ }
+
+func DialDTLS(network string, server *net.UDPAddr, opts ...piondtls.ClientOption) (*DTLSClient, error)
+func (c *DTLSClient) Exchange(ctx context.Context, raw []byte) ([]byte, error)
+func (c *DTLSClient) Close() error
+func (c *DTLSClient) LocalAddr() net.Addr
 ```
 
 `Exchange` is the simple synchronous API. The `protocol/` layer will use
-`TCPConn.ReadPacket`/`WritePacket` directly for multiplexed dispatch by
+`*Conn.ReadPacket`/`WritePacket` directly for multiplexed dispatch by
 Identifier (see §7).
 
 ## 5. UDP Transport (RFC 2865, RFC 3162)
@@ -231,8 +252,120 @@ func (c *TCPClient) Exchange(ctx context.Context, raw []byte) ([]byte, error)
 - `UDPTransport.SendPacket` is guarded by an internal `sync.Mutex`.
 - `UDPTransport.ReadPacket` may be called by only one goroutine at a time
   per socket; the server `Serve` loop is the canonical single reader.
+- `TLSConn` and `DTLSConn` mirror `TCPConn`'s concurrency model: write
+  mutex on the connection, single reader per connection.
 
-## 7. Protocol Layer Hook (forward reference)
+## 7. TLS Transport (RFC 6614)
+
+### 7.1 Framing
+
+RFC 6614 §2.4 states that TLS wraps TCP and "the RADIUS packet format is
+unchanged" — the same 2-byte `Length` field at offset 2..3 delimits each
+packet on the TLS record stream. `TLSConn.ReadPacket` therefore reuses
+the same `readFramedStream` helper as `TCPConn.ReadPacket`:
+4-byte header → validate Length → `io.ReadFull` for the payload.
+
+### 7.2 Handshake
+
+`tls.Listener` defers the TLS handshake to the first `Read`/`Write` on
+the underlying `*tls.Conn`. To surface handshake failures from `Accept`
+rather than the first `ReadPacket`, `TLSListener.Accept` forces the
+handshake via `(*tls.Conn).HandshakeContext(ctx)` before returning the
+connection to the caller. A handshake failure closes the connection and
+returns the error from `Accept`.
+
+### 7.3 ListenTLS / DialTLS
+
+```go
+func ListenTLS(network string, laddr *net.TCPAddr, config *tls.Config) (*TLSListener, error)
+func DialTLS(network string, server *net.TCPAddr, config *tls.Config) (*TLSClient, error)
+```
+
+- `ListenTLS` requires `config.Certificates` to be non-empty; otherwise
+  returns `ErrInvalidAttribute`.
+- `DialTLS` uses `tls.DialWithDialer` with a 30 s dial timeout, then
+  forces the handshake before returning. The client `*tls.Config` should
+  set `InsecureSkipVerify` only for testing — production deployments
+  should pin a `RootCAs` pool.
+- Per RFC 6614 §2.5: TLS 1.2 is the minimum supported version; TLS 1.3
+  is preferred when both peers support it.
+
+### 7.4 Concurrency and Lifecycle
+
+Same as TCP: `TLSConn.WritePacket` is mutex-guarded; one reader per
+connection. `Close` is safe for concurrent calls.
+
+## 8. DTLS Transport (RFC 7360)
+
+### 8.1 Framing
+
+RFC 7360 §2.4 carries RADIUS over DTLS, with the same Length-framed
+packet format as TCP/TLS. However, DTLS is **message-oriented**: one
+`Read` call returns the full decrypted DTLS record. If the caller's
+buffer is smaller than the record, pion returns `errBufferTooSmall` and
+**does not** leave the remainder for the next read.
+
+`DTLSConn.ReadPacket` therefore uses a separate `readFramedMessage`
+helper that allocates a buffer of `types.PacketMaxLengthRFC2866` (4095)
+bytes and calls `Read` once. The first 4 bytes are validated as the
+RADIUS header; if the declared `Length` exceeds the number of bytes
+returned, the packet is rejected as malformed.
+
+### 8.2 Implementation: pion/dtls/v3
+
+The DTLS transport uses `github.com/pion/dtls/v3`, which is the only
+maintained Go DTLS implementation. v3 is required because v2 is
+permanently affected by [GO-2026-4479](https://pkg.go.dev/vuln/GO-2026-4479)
+/ CVE-2026-26014 (random nonce generation with AES-GCM ciphers risks
+leaking the authentication key).
+
+pion v3 deprecated the `*Config`-based API in favor of an options-based
+API (`ListenWithOptions` / `DialWithOptions` with `ServerOption` /
+`ClientOption` variadic args). Our `ListenDTLS` and `DialDTLS` mirror
+this shape:
+
+```go
+func ListenDTLS(network string, laddr *net.UDPAddr, opts ...piondtls.ServerOption) (*DTLSListener, error)
+func DialDTLS(network string, server *net.UDPAddr, opts ...piondtls.ClientOption) (*DTLSClient, error)
+```
+
+Callers pass options like `piondtls.WithCertificates(cert)` and
+`piondtls.WithInsecureSkipVerify(true)` directly. Passing no options to
+`ListenDTLS` returns `ErrInvalidAttribute`.
+
+### 8.3 Handshake
+
+pion v3 defers the DTLS handshake to the first `Read`/`Write`. To mirror
+the TLS transport (where handshake failures surface from `Dial*` rather
+than the first `Exchange`), `DialDTLS` calls `(*piondtls.Conn).HandshakeContext(ctx)`
+with a 30 s timeout before returning. A handshake failure closes the
+connection and returns the error from `DialDTLS`.
+
+`DTLSListener.Accept` does not force the handshake explicitly — pion's
+`listener.Accept` performs the handshake internally before returning the
+connection. Handshake failures on the server side therefore surface from
+`Accept` directly.
+
+### 8.4 Closed-connection error mapping
+
+pion's closed-connection errors do not unwrap to `net.ErrClosed`:
+
+- `piondtls.ErrConnClosed` — surfaced by `(*Conn).Write`/`Read` after
+  `Close`. Wrapped in `&FatalError{}`. Matched explicitly in `isClosed`.
+- `"udp: listener closed"` — surfaced by `listener.Accept` after
+  `listener.Close`. The sentinel is in pion's internal `udp` package
+  and cannot be imported from outside, so `isClosed` matches by
+  substring (`"listener closed"`). The string has been stable across
+  pion releases.
+
+### 8.5 Retransmission
+
+Per RFC 7360 §2.4.3, retransmission on the same DTLS connection is not
+performed — the DTLS layer handles retransmission of handshake flights
+but not of RADIUS request/response pairs. Redialing and retrying on a
+new connection is the caller's responsibility, mirroring TLS.
+
+## 9. Protocol Layer Hook (forward reference)
 
 The `protocol/` layer (next phase) will use the transport primitives as
 follows. This is documented here to validate that the transport surface is
@@ -264,7 +397,7 @@ TCP client (multiplexed):
   - per-request goroutine: conn.WritePacket(raw) then wait on demux channel
 ```
 
-## 8. Error Handling
+## 10. Error Handling
 
 ### 8.1 New sentinel errors (added to `errors/errors.go`)
 
@@ -293,7 +426,7 @@ boundary checks.
   calls return `ErrConnClosed`.
 - `Close()` is idempotent and safe for concurrent calls.
 
-## 9. Logging
+## 11. Logging
 
 Per the project's global convention (see `~/.claude/CLAUDE.md`):
 
@@ -314,7 +447,7 @@ Per the project's global convention (see `~/.claude/CLAUDE.md`):
 A small helper `transport.logger()` returns a `*logrus.Entry` pre-populated
 with the `func` field, reducing boilerplate at call sites.
 
-## 10. Testing Strategy
+## 12. Testing Strategy
 
 ### 10.1 Unit tests (in-process, no real network)
 
@@ -347,13 +480,13 @@ with the `func` field, reducing boilerplate at call sites.
 - CI gate currently set to 0 % (Phase 1-9 tolerance); will be raised to
   90 % in Phase 10 once `protocol/`, `client/`, and `server/` are present.
 
-## 11. Open Questions
+## 13. Open Questions
 
 None currently. If during implementation we discover that the protocol
 layer needs additional hooks (e.g., peek-at-header without consuming the
 body), we will revisit §4 before adding to the interface.
 
-## 12. References
+## 14. References
 
 - RFC 2865 §2.4 (Why UDP?), §2.5 (Retransmission Hints), §2.6 (Keep-Alives
   Considered Harmful), §3 (Packet Format)

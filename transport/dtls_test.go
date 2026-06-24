@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	piondtls "github.com/pion/dtls/v2"
+	piondtls "github.com/pion/dtls/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -16,30 +16,28 @@ import (
 	"github.com/wxccs/radius/types"
 )
 
-// pionCertFromTLS reuses the self-signed cert generated for TLS tests
-// by adapting *tls.Config into *piondtls.Config. Pion accepts standard
-// tls.Certificate values, so the same key material works for both.
-func pionCertFromTLS(t *testing.T) *piondtls.Config {
+// pionServerOpts reuses the self-signed cert generated for TLS tests
+// and returns pion options suitable for the DTLS server side. The
+// FlightInterval is shortened so handshake retransmits fire quickly
+// on slow CI runners.
+func pionServerOpts(t *testing.T) []piondtls.ServerOption {
 	t.Helper()
 	src := selfSignedCert(t)
-	return &piondtls.Config{
-		Certificates: src.Certificates,
-		// DTLS handshake can be slow on CI runners; give tests breathing room.
-		ConnectContextMaker: func() (context.Context, func()) {
-			return context.WithTimeout(context.Background(), 10*time.Second)
-		},
+	return []piondtls.ServerOption{
+		piondtls.WithCertificates(src.Certificates...),
+		piondtls.WithFlightInterval(100 * time.Millisecond),
 	}
 }
 
-// pionClientConfig returns a *piondtls.Config suitable for the client
-// side of a loopback test against a server using pionCertFromTLS().
-func pionClientConfig(t *testing.T) *piondtls.Config {
+// pionClientOpts returns pion options suitable for the DTLS client
+// side of a loopback test against a server using pionServerOpts().
+// InsecureSkipVerify is set because the server cert is self-signed
+// and not pinned to any trust store.
+func pionClientOpts(t *testing.T) []piondtls.ClientOption {
 	t.Helper()
-	return &piondtls.Config{
-		InsecureSkipVerify: true,
-		ConnectContextMaker: func() (context.Context, func()) {
-			return context.WithTimeout(context.Background(), 10*time.Second)
-		},
+	return []piondtls.ClientOption{
+		piondtls.WithInsecureSkipVerify(true),
+		piondtls.WithFlightInterval(100 * time.Millisecond),
 	}
 }
 
@@ -50,7 +48,7 @@ func startDTLSEchoServer(t *testing.T) (*DTLSListener, *net.UDPAddr) {
 	t.Helper()
 	ln, err := ListenDTLS("udp4",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		pionCertFromTLS(t))
+		pionServerOpts(t)...)
 	require.NoError(t, err)
 	addr, ok := ln.LocalAddr().(*net.UDPAddr)
 	require.True(t, ok)
@@ -85,7 +83,7 @@ func startDTLSEchoServer(t *testing.T) (*DTLSListener, *net.UDPAddr) {
 func TestListenDTLS_BindsEphemeralPort(t *testing.T) {
 	ln, err := ListenDTLS("udp4",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		pionCertFromTLS(t))
+		pionServerOpts(t)...)
 	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
 
@@ -95,8 +93,9 @@ func TestListenDTLS_BindsEphemeralPort(t *testing.T) {
 }
 
 func TestListenDTLS_RequiresCertificate(t *testing.T) {
+	// Passing no options must be rejected with ErrInvalidAttribute.
 	_, err := ListenDTLS("udp4",
-		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0}, nil)
+		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0})
 	require.Error(t, err)
 	assert.True(t, errors.Is(err, radiuserrors.ErrInvalidAttribute))
 }
@@ -104,7 +103,7 @@ func TestListenDTLS_RequiresCertificate(t *testing.T) {
 func TestDTLSListener_Accept_ContextCanceled(t *testing.T) {
 	ln, err := ListenDTLS("udp4",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		pionCertFromTLS(t))
+		pionServerOpts(t)...)
 	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
 
@@ -118,7 +117,7 @@ func TestDTLSListener_Accept_ContextCanceled(t *testing.T) {
 func TestDTLSListener_Accept_AfterClose(t *testing.T) {
 	ln, err := ListenDTLS("udp4",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		pionCertFromTLS(t))
+		pionServerOpts(t)...)
 	require.NoError(t, err)
 	require.NoError(t, ln.Close())
 
@@ -131,7 +130,7 @@ func TestDTLSConn_LoopbackExchange(t *testing.T) {
 	ln, addr := startDTLSEchoServer(t)
 	defer func() { _ = ln.Close() }()
 
-	client, err := DialDTLS("udp4", addr, pionClientConfig(t))
+	client, err := DialDTLS("udp4", addr, pionClientOpts(t)...)
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
@@ -147,7 +146,7 @@ func TestDTLSConn_LoopbackExchange_MultipleRequests(t *testing.T) {
 	ln, addr := startDTLSEchoServer(t)
 	defer func() { _ = ln.Close() }()
 
-	client, err := DialDTLS("udp4", addr, pionClientConfig(t))
+	client, err := DialDTLS("udp4", addr, pionClientOpts(t)...)
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 
@@ -164,7 +163,7 @@ func TestDTLSConn_LoopbackExchange_MultipleRequests(t *testing.T) {
 func TestDTLSConn_ReadPacket_MalformedLength(t *testing.T) {
 	ln, err := ListenDTLS("udp4",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		pionCertFromTLS(t))
+		pionServerOpts(t)...)
 	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
 
@@ -182,7 +181,7 @@ func TestDTLSConn_ReadPacket_MalformedLength(t *testing.T) {
 		serverErr <- err
 	}()
 
-	c, err := piondtls.Dial("udp4", ln.LocalAddr().(*net.UDPAddr), pionClientConfig(t))
+	c, err := piondtls.DialWithOptions("udp4", ln.LocalAddr().(*net.UDPAddr), pionClientOpts(t)...)
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 	// Length=19 below minimum of 20.
@@ -201,7 +200,7 @@ func TestDTLSConn_ReadPacket_MalformedLength(t *testing.T) {
 func TestDTLSConn_ReadPacket_Timeout(t *testing.T) {
 	ln, err := ListenDTLS("udp4",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		pionCertFromTLS(t))
+		pionServerOpts(t)...)
 	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
 
@@ -219,7 +218,7 @@ func TestDTLSConn_ReadPacket_Timeout(t *testing.T) {
 		errCh <- err
 	}()
 
-	c, err := piondtls.Dial("udp4", ln.LocalAddr().(*net.UDPAddr), pionClientConfig(t))
+	c, err := piondtls.DialWithOptions("udp4", ln.LocalAddr().(*net.UDPAddr), pionClientOpts(t)...)
 	require.NoError(t, err)
 	defer func() { _ = c.Close() }()
 	// Don't send anything; server ReadPacket should time out.
@@ -237,7 +236,7 @@ func TestDTLSConn_WritePacket_AfterClose(t *testing.T) {
 	ln, addr := startDTLSEchoServer(t)
 	defer func() { _ = ln.Close() }()
 
-	client, err := DialDTLS("udp4", addr, pionClientConfig(t))
+	client, err := DialDTLS("udp4", addr, pionClientOpts(t)...)
 	require.NoError(t, err)
 	require.NoError(t, client.Close())
 
@@ -250,7 +249,7 @@ func TestDTLSClient_Exchange_AfterClose(t *testing.T) {
 	ln, addr := startDTLSEchoServer(t)
 	defer func() { _ = ln.Close() }()
 
-	client, err := DialDTLS("udp4", addr, pionClientConfig(t))
+	client, err := DialDTLS("udp4", addr, pionClientOpts(t)...)
 	require.NoError(t, err)
 	require.NoError(t, client.Close())
 
@@ -263,7 +262,7 @@ func TestDTLSClient_LocalAddr(t *testing.T) {
 	ln, addr := startDTLSEchoServer(t)
 	defer func() { _ = ln.Close() }()
 
-	client, err := DialDTLS("udp4", addr, pionClientConfig(t))
+	client, err := DialDTLS("udp4", addr, pionClientOpts(t)...)
 	require.NoError(t, err)
 	defer func() { _ = client.Close() }()
 	assert.NotNil(t, client.LocalAddr())
@@ -275,14 +274,14 @@ func TestDialDTLS_Failure(t *testing.T) {
 	// Invalid network forces a dial failure.
 	_, err := DialDTLS("invalid-net",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		pionClientConfig(t))
+		pionClientOpts(t)...)
 	require.Error(t, err)
 }
 
 func TestDTLSListener_LocalAddr(t *testing.T) {
 	ln, err := ListenDTLS("udp4",
 		&net.UDPAddr{IP: net.IPv4(127, 0, 0, 1), Port: 0},
-		pionCertFromTLS(t))
+		pionServerOpts(t)...)
 	require.NoError(t, err)
 	defer func() { _ = ln.Close() }()
 	assert.NotNil(t, ln.LocalAddr())

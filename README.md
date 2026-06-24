@@ -21,15 +21,18 @@ server modes.
 | 3162 | RADIUS and IPv6 |
 | 5176 | Dynamic Authorization Extensions to RADIUS |
 | 6613 | RADIUS over TCP |
+| 6614 | RADIUS over TLS |
 | 6929 | RADIUS Protocol Extensions |
+| 7360 | RADIUS over DTLS |
 | 9445 | RADIUS Extensions for DHCP-Configured Services |
 
 ## Status
 
-Stable v1.0.0. The core packet, crypto, transport, protocol, client, and
-server layers are complete and tested against the RFCs listed above. The
-public API follows semantic versioning; breaking changes will be reserved
-for v2.
+Stable v1.0.0 with v1.1 in development. The core packet, crypto, transport
+(UDP/TCP/TLS/DTLS), protocol, client, and server layers are complete and tested
+against the RFCs listed above. The public API follows semantic versioning;
+breaking changes will be reserved for v2. See [CHANGELOG.md](CHANGELOG.md) for
+the full change history.
 
 ## Installation
 
@@ -124,10 +127,84 @@ methods mirroring `Authenticate`; the server-side `Handler` receives the
 raw `*server.Request` and can branch on `req.Code`. See the
 [package docs](https://pkg.go.dev/github.com/wxccs/radius) for the full API.
 
+## Transports
+
+The `transport/` package exposes four transports, all of which use the
+existing 2-byte `Length` field at offset 2..3 of the RADIUS header for
+framing (RFC 6613 §2.1):
+
+| Transport | Listener / Dialer | RFC |
+|-----------|-------------------|-----|
+| UDP       | `ListenUDP`, `DialUDP`        | 2865, 3162 |
+| TCP       | `ListenTCP`, `DialTCP`        | 6613 |
+| TLS       | `ListenTLS`, `DialTLS`        | 6614 |
+| DTLS      | `ListenDTLS`, `DialDTLS`      | 7360 |
+
+```go
+// TLS server
+ln, err := transport.ListenTLS("tcp4", laddr, tlsConfig)
+// TLS client
+client, err := transport.DialTLS("tcp4", server, tlsConfig)
+
+// DTLS server (pion options API)
+ln, err := transport.ListenDTLS("udp4", laddr,
+    piondtls.WithCertificates(cert), piondtls.WithFlightInterval(100*time.Millisecond))
+// DTLS client
+client, err := transport.DialDTLS("udp4", server,
+    piondtls.WithInsecureSkipVerify(true))
+```
+
+## Vendor-Specific Attributes
+
+The `vendors/` package provides typed constructors for common vendor
+sub-attributes, each in its own sub-package keyed by SMI Private Enterprise
+Code:
+
+| Sub-package | Vendor | Code  |
+|-------------|--------|-------|
+| `vendors/cisco`     | Cisco     | 9    |
+| `vendors/h3c`       | H3C       | 2011 |
+| `vendors/juniper`   | Juniper   | 2636 |
+| `vendors/alcatel`   | Alcatel   | 800  |
+| `vendors/redback`   | Redback   | 2352 |
+| `vendors/microsoft` | Microsoft | 311  |
+
+```go
+// Microsoft MS-CHAP2-Success VSA, computed from MS-CHAPv2 inputs.
+attr := microsoft.NewMSCHAP2SuccessFromAuth(
+    authChallenge, peerChallenge, ntResponse, "alice", "password")
+```
+
+Shared helpers `vendors.NewVSA`, `vendors.DecodeVSA`, and
+`vendors.MatchVSA` implement the RFC 2865 §5.26 wire format for vendors
+not covered by a dedicated sub-package.
+
+## Dictionary Support
+
+The `dictionary/parser/` package parses FreeRADIUS dictionary files
+(`$INCLUDE`, `ATTRIBUTE`, `VALUE`, `VENDOR`, `BEGIN-VENDOR`/`END-VENDOR`,
+`ALIAS`, `BEGIN-TLV`, `BEGIN-ENUM`) and returns a `*parser.Dict` that
+can be registered at runtime via `(*Dictionary).RegisterFromDict`.
+
+The `dictionary/gen/` package and the `cmd/dict-gen` CLI emit typed Go
+source (constants + accessor pairs) from a parsed dictionary, so you can
+reference attributes by name at compile time:
+
+```sh
+go install ./cmd/dict-gen
+dict-gen --in dictionary.freeradius --out attrs.go --pkg attrs
+```
+
+```go
+// In your application:
+attrs.AddUserName(p, "alice")
+if v, ok := attrs.GetNASPort(p); ok { /* ... */ }
+```
+
 ## Command-Line Tool
 
-The `radius-tool` binary supports client mode (auth/acct/coa/dm) and a
-lightweight test server mode. Build it with:
+The `radius-tool` binary supports client mode (`access`, `account`, `coa`,
+`disconnect`) and a lightweight test server mode. Build it with:
 
 ```sh
 go build -o radius-tool ./cmd/radius-tool

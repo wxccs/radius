@@ -118,7 +118,7 @@ func parseFile(abs string, visited map[string]bool) (*Dict, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	visited[abs] = true
 	defer delete(visited, abs)
 	return parse(f, filepath.Dir(abs), visited)

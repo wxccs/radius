@@ -6,7 +6,11 @@ import (
 	"encoding/binary"
 	"strings"
 
-	"golang.org/x/crypto/md4"
+	// MD4 is required by RFC 2759 §8.3 for the NT password hash used
+	// in MS-CHAPv2. The algorithm is cryptographically broken for
+	// general-purpose use but mandated by the protocol; we use it
+	// solely for legacy MS-CHAPv2 compatibility, not for new security.
+	"golang.org/x/crypto/md4" //nolint:staticcheck
 )
 
 // MS-CHAPv2 / MS-CHAPv1 constants from RFC 2759 and RFC 3079.
@@ -268,8 +272,8 @@ func hexUpper(b []byte) string {
 // bare account name. Used by MS-CHAPv2 callers who receive a fully
 // qualified user name from the NAS.
 func stripDomain(user string) string {
-	if i := strings.IndexByte(user, '\\'); i >= 0 {
-		return user[i+1:]
+	if _, after, ok := strings.Cut(user, "\\"); ok {
+		return after
 	}
 	return user
 }

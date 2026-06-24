@@ -48,9 +48,9 @@ import (
 	"errors"
 	"net"
 	"os"
+	"strings"
 
-	piondtls "github.com/pion/dtls/v2"
-	"github.com/pion/transport/v2/udp"
+	piondtls "github.com/pion/dtls/v3"
 
 	radiuslog "github.com/wxccs/radius/log"
 )
@@ -92,8 +92,11 @@ func withFunc(name string) radiuslog.Logger {
 // connection has been closed. Matches:
 //
 //   - net.ErrClosed (standard library, surfaced by TCP/UDP/TLS)
-//   - pion/dtls ErrConnClosed (DTLS connection closed by peer or self)
-//   - pion/transport udp.ErrClosedListener (DTLS listener closed)
+//   - pion/dtls v3 ErrConnClosed (DTLS connection closed by peer or self)
+//   - The "udp: listener closed" string returned by pion/dtls v3's
+//     internal UDP listener after Close (the sentinel is in an internal
+//     package and cannot be imported; matching by string is the
+//     stable contract pion exposes)
 //
 // pion's sentinels do not unwrap to net.ErrClosed, so they must be
 // matched explicitly.
@@ -104,7 +107,11 @@ func isClosed(err error) bool {
 	if errors.Is(err, piondtls.ErrConnClosed) {
 		return true
 	}
-	if errors.Is(err, udp.ErrClosedListener) {
+	// pion/dtls v3's listener.Close surfaces an error from an internal
+	// udp package whose sentinel is not exported. The error string has
+	// been stable across pion releases ("udp: listener closed"), so we
+	// match by substring as a fallback.
+	if err != nil && strings.Contains(err.Error(), "listener closed") {
 		return true
 	}
 	return false

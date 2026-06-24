@@ -70,7 +70,7 @@ func newCommand() *cobra.Command {
 			if err != nil {
 				return fmt.Errorf("open output: %w", err)
 			}
-			defer f.Close()
+			defer func() { _ = f.Close() }()
 
 			opt := gen.Options{Package: pkg, Header: header}
 			if err := gen.Gen(d, f, opt); err != nil {
