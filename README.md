@@ -28,16 +28,17 @@ server modes.
 
 ## Status
 
-Stable v1.0.0 with v1.1 in development. The core packet, crypto, transport
-(UDP/TCP/TLS/DTLS), protocol, client, and server layers are complete and tested
-against the RFCs listed above. The public API follows semantic versioning;
-breaking changes will be reserved for v2. See [CHANGELOG.md](CHANGELOG.md) for
-the full change history.
+Stable v1.1.0. The core packet, crypto, transport (UDP/TCP/TLS/DTLS),
+protocol, client, server, dictionary parser/generator, and vendor
+sub-package layers are complete and tested against the RFCs listed above.
+The public API follows semantic versioning; breaking changes will be
+reserved for v2. See [CHANGELOG.md](CHANGELOG.md) for the full change
+history.
 
 ## Installation
 
 ```sh
-go get github.com/wxccs/radius@v1.0.0
+go get github.com/wxccs/radius@v1.1.0
 ```
 
 ## Quick Start

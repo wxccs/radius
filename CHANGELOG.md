@@ -6,6 +6,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+No unreleased changes.
+
+## [v1.1.0] — 2026-06-25
+
 ### Added
 - `dictionary/parser` — FreeRADIUS dictionary file parser supporting
   `$INCLUDE`, `ATTRIBUTE`, `VALUE`, `VENDOR`, `BEGIN-VENDOR`/`END-VENDOR`,
@@ -46,6 +50,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   on partial reads).
 - Shared `transport.writeFramedPacket` helper for all connection-oriented
   transports.
+- `CHANGELOG.md` and design docs for the dictionary, vendors, and
+  transport (TLS/DTLS) layers.
 
 ### Changed
 - `transport.isClosed` now also recognizes `piondtls.ErrConnClosed`
@@ -54,13 +60,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   sentinel is in an internal package and cannot be imported, so the
   string match is the stable contract pion exposes.
 - `dictionary.go` — `ValueType.String()` returns `"raw"` for `TypeRaw`.
+- README expanded with sections for transports, vendor sub-packages,
+  and dictionary support; supported-RFCs table now lists RFC 6614
+  (TLS) and RFC 7360 (DTLS).
 
 ### Security
 - Upgraded `github.com/pion/dtls` from v2.2.12 to v3.1.4 to fix
   [GO-2026-4479](https://pkg.go.dev/vuln/GO-2026-4479) / CVE-2026-26014:
   "Usage of random nonce generation with AES GCM ciphers risks leaking
   the authentication key." The fix is only available in pion/dtls v3
-  (v3.0.11+ or v3.1.1+); v2 is permanently affected.
+  (v3.0.11+ or v3.1.1+); v2 is permanently affected. The vulnerability
+  only affects the new DTLS transport introduced in this release; v1.0.0
+  did not ship DTLS and is not affected.
 
 ### Fixed
 - `cmd/dict-gen/main.go` and `dictionary/parser/parser.go` —
