@@ -49,7 +49,9 @@ const testSecret = "integration-secret"
 // callTimeout bounds each client call. We pass an explicit deadline because
 // client.Config.Timeout is not yet wired through the protocol layer; the CLI
 // applies its own deadline via context.WithTimeout, and tests do the same.
-const callTimeout = 3 * time.Second
+// 10s leaves room for the default retransmit policy (2s/4s/8s backoff) to
+// complete a couple of attempts under contention.
+const callTimeout = 10 * time.Second
 
 // loopbackHandler records the last request seen and replies with a
 // caller-chosen code. It lets every subtest share one handler factory while
@@ -314,16 +316,45 @@ func TestUDP_EAPMessageAuthenticator(t *testing.T) {
 }
 
 func TestUDP_RetransmissionRecovers(t *testing.T) {
-	// This scenario — server drops the first packet, client retransmits and
-	// succeeds on attempt 2 — requires the transport to apply a per-attempt
-	// read timeout so Exchange returns between attempts. The current
-	// UDPClient.Exchange blocks on ReadFrom until the context deadline, so
-	// the retransmit loop never advances for a silent server. The retransmit
-	// *policy* (NextDelay, Attempts, the loop itself) is covered by
-	// protocol/client_test.go using a fast-returning mock transport.
-	//
-	// Skip end-to-end coverage until the transport grows per-attempt timeouts.
-	t.Skip("transport.UDPClient.Exchange blocks until ctx deadline; per-attempt retransmission needs transport-level timeout support")
+	// Drop the first request, answer the second. The client must transparently
+	// retransmit and still return a successful reply. Uses a tight backoff so
+	// the whole exchange fits well inside callTimeout.
+	ctx, cancel := callCtx(t)
+	defer cancel()
+
+	var count atomic.Int32
+	handler := server.HandlerFunc(func(_ context.Context, req *server.Request) (*packet.Packet, error) {
+		if count.Add(1) == 1 {
+			return nil, nil // drop first
+		}
+		return &packet.Packet{
+			Code:          types.AccessAccept,
+			Identifier:    req.Identifier,
+			Authenticator: req.Authenticator,
+		}, nil
+	})
+	addr := startUDPServer(t, ctx, handler)
+
+	c, err := client.NewUDPClient(addr, []byte(testSecret), client.Config{
+		Retransmit: protocol.RetransmitPolicy{
+			MaxAttempts: 5,
+			Initial:     20 * time.Millisecond,
+			Max:         100 * time.Millisecond,
+			Jitter:      0,
+		},
+	})
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	resp, err := c.Client.Authenticate(ctx, &protocol.AccessRequest{
+		Attributes: []packet.Attribute{
+			packet.NewString(types.AttrUserName, "retry-user"),
+		},
+		Method: protocol.AuthPAP,
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.AccessAccept, resp.Code)
+	assert.Greater(t, count.Load(), int32(1), "server must have seen at least one retransmission")
 }
 
 func TestUDP_UnknownSecretDropped(t *testing.T) {

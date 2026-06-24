@@ -396,6 +396,12 @@ func (c *Client) acquireID(ctx context.Context) (byte, error) {
 // Response Authenticator, or Message-Authenticator are discarded and
 // the loop continues until the context deadline.
 //
+// Per-attempt timeout: each Exchange call (except the last) runs under a
+// derived context whose deadline is now + NextDelay(attempt). This lets a
+// silent server trigger retransmission instead of blocking until the parent
+// deadline. The final attempt inherits the parent context so it can use any
+// remaining time.
+//
 // On success the reply is returned both as raw bytes and as a parsed
 // packet. The parsed packet is already verified by VerifyResponse, so
 // callers can trust its Identifier, Authenticator, and Attributes.
@@ -418,12 +424,33 @@ func (c *Client) exchangeWithRetransmit(
 			case <-time.After(delay):
 			}
 		}
+
+		// For all but the last attempt, bound the read with a per-attempt
+		// deadline so a silent server forces a retransmit instead of
+		// consuming the whole parent budget on a single Read.
+		exchangeCtx := ctx
+		if attempt < attempts-1 {
+			perAttempt := c.retransmit.NextDelay(attempt)
+			if perAttempt > 0 {
+				var cancel context.CancelFunc
+				exchangeCtx, cancel = context.WithTimeout(ctx, perAttempt)
+				defer cancel()
+			}
+		}
+
 		log.Debug("send", "attempt", attempt, "bytes", len(raw))
-		reply, err := c.transport.Exchange(ctx, raw)
+		reply, err := c.transport.Exchange(exchangeCtx, raw)
 		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			if errors.Is(err, context.Canceled) {
 				return nil, err
 			}
+			// A parent-level deadline means the caller gave up; surface it
+			// instead of retrying against an already-expired context.
+			if ctxErr := ctx.Err(); ctxErr != nil {
+				return nil, ctxErr
+			}
+			// Otherwise the error is per-attempt (timeout, closed, I/O) and
+			// the loop retries if attempts remain.
 			lastErr = err
 			log.Warn("exchange failed", "attempt", attempt, "error", err)
 			continue
