@@ -267,11 +267,25 @@ Phase 6 — it affects RFC 2868, 2867, and some 2869 attributes.
 
 ## RFC 6613 — RADIUS over TCP (deferred to Phase 4)
 
-- TCP port **5080** (both auth and accounting share this port; demultiplex by Code).
-- Each PDUs prefixed by a 2-byte length header (big-endian) giving the RADIUS
-  PDU length (excluding the 2-byte prefix itself).
-- Connection management: persistent, MAY multiplex multiple concurrent requests
-  over one connection; server matches responses by (ID, source) per connection.
+- Per RFC 6613 §2.2, RADIUS/TCP uses the same IANA-assigned ports as UDP:
+  1812/tcp (auth), 1813/tcp (acct), 3799/tcp (CoA). The `PortTCP = 5080`
+  constant in `types/` is kept as the project's default listening port for
+  the test server, distinct from the IANA-registered production ports.
+- No separate length prefix. RFC 6613 §2.1 states the RADIUS packet format
+  is unchanged, so framing on the TCP byte stream uses the existing 2-byte
+  `Length` field at offset 2..3 of the RADIUS header: read 4 bytes (Code +
+  ID + Length), decode Length, then read `Length - 4` more bytes.
+- Connection management: persistent, MAY multiplex multiple concurrent
+  requests over one connection; server matches responses by (ID, source)
+  per connection. Per §2.6.5 only 256 IDs may be in flight on one
+  connection.
+- Per §2.6.4, malformed framing (Length < 20 or > 4096, attribute length
+  0 or 1, attributes do not fill the declared Length, authenticator
+  verification fails, Message-Authenticator fails) MUST close the
+  connection.
+- Per §2.6.1, no retransmission on the same TCP connection; redialing and
+  retrying on a new connection is permitted but the new source port may
+  change the ID, which requires recomputing Message-Authenticator.
 - TLS variant defined in RFC 6614 (out of scope unless requested).
 
 ## RFC 6929 — Protocol Extensions (deferred to Phase 6)

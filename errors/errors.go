@@ -67,6 +67,32 @@ var (
 	ErrMessageAuthenticatorMismatch = New("message-authenticator verification failed")
 )
 
+// Transport-layer errors. Returned by the transport package for network
+// and framing failures; safe to branch on with errors.Is.
+var (
+	// ErrTimeout indicates a context deadline was exceeded while waiting
+	// for a network operation. Wrap-aware callers may also match
+	// context.DeadlineExceeded directly.
+	ErrTimeout = New("operation timed out")
+
+	// ErrConnClosed is returned by ReadPacket / SendPacket / Exchange after
+	// the underlying socket or TCP connection has been closed.
+	ErrConnClosed = New("connection closed")
+
+	// ErrMalformedPacket indicates a TCP framing failure: the RADIUS Length
+	// field is out of bounds, attributes do not fill the declared Length, or
+	// a partial read could not be completed. Per RFC 6613 §2.6.4 the caller
+	// should close the TCP connection when this is returned.
+	ErrMalformedPacket = New("malformed RADIUS packet")
+
+	// ErrUnknownPeer is returned by UDPClient.Exchange when a reply is
+	// received from a source address that does not match the configured
+	// server. Per RFC 2865 §3 the stray packet is silently discarded and
+	// Exchange continues to wait for the legitimate reply (subject to the
+	// context deadline).
+	ErrUnknownPeer = New("packet from unknown peer")
+)
+
 // Is reports whether any error in err's chain matches the target.
 //
 // Re-exported for convenience so callers can import only this package.
