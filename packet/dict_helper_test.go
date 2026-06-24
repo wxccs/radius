@@ -2,12 +2,14 @@ package packet
 
 import (
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/wxccs/radius/dictionary"
+	"github.com/wxccs/radius/dictionary/parser"
 	"github.com/wxccs/radius/errors"
 	"github.com/wxccs/radius/types"
 )
@@ -191,4 +193,61 @@ func TestAttribute_DecodeInteger_String(t *testing.T) {
 	a := NewString(types.AttrUserName, "alice")
 	_, err := a.DecodeInteger(d)
 	require.ErrorIs(t, err, errors.ErrInvalidAttribute)
+}
+
+// TestNewByName_FromFreeRADIUSDictionary exercises the full pipeline:
+// parse a FreeRADIUS-format string into a *parser.Dict, register it
+// into a runtime Dictionary, then use NewByName to encode a TypeRaw
+// attribute as opaque bytes.
+func TestNewByName_FromFreeRADIUSDictionary(t *testing.T) {
+	src := `# Site-specific extension attributes.
+ATTRIBUTE My-String       200 string
+ATTRIBUTE My-Integer      201 integer
+ATTRIBUTE My-IP           202 ipaddr
+ATTRIBUTE My-IPv6         203 ipv6addr
+ATTRIBUTE My-Octets       204 octets
+ATTRIBUTE My-Raw          205 ifid
+`
+	p, err := parser.Parse(strings.NewReader(src))
+	require.NoError(t, err)
+
+	d := dictionary.New()
+	require.NoError(t, d.RegisterFromDict(p))
+
+	// Each known type encodes via the dict helper.
+	a, err := NewByName(d, "My-String", "hello")
+	require.NoError(t, err)
+	assert.Equal(t, []byte("hello"), a.Value)
+
+	a, err = NewByName(d, "My-Integer", uint32(42))
+	require.NoError(t, err)
+	n, err := a.Integer()
+	require.NoError(t, err)
+	assert.Equal(t, uint32(42), n)
+
+	a, err = NewByName(d, "My-IP", net.IPv4(10, 0, 0, 1))
+	require.NoError(t, err)
+	assert.Equal(t, []byte{10, 0, 0, 1}, a.Value)
+
+	// TypeRaw accepts string and []byte and stores them verbatim —
+	// matching the documented "degrade to opaque octets" behavior.
+	a, err = NewByName(d, "My-Raw", []byte{0xde, 0xad, 0xbe, 0xef})
+	require.NoError(t, err)
+	assert.Equal(t, []byte{0xde, 0xad, 0xbe, 0xef}, a.Value)
+
+	a, err = NewByName(d, "My-Raw", "raw-payload")
+	require.NoError(t, err)
+	assert.Equal(t, []byte("raw-payload"), a.Value)
+
+	// Round-trip: Decode returns []byte (a copy) for TypeRaw.
+	decoded, err := a.Decode(d)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("raw-payload"), decoded)
+
+	// DecodeString / DecodeInteger must reject TypeRaw to prevent
+	// callers from silently mistyping opaque payloads.
+	_, err = a.DecodeString(d)
+	assert.ErrorIs(t, err, errors.ErrInvalidAttribute)
+	_, err = a.DecodeInteger(d)
+	assert.ErrorIs(t, err, errors.ErrInvalidAttribute)
 }

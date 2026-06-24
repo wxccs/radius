@@ -22,11 +22,15 @@ type VSAValue struct {
 // The dictionary's ValueType for the named attribute decides how value is
 // encoded:
 //
-//   - TypeString, TypeOctets: value must be string, []byte, or fmt.Stringer
-//   - TypeInteger:             value must be uint32, uint, int, or a numeric string
-//   - TypeIPAddr:               value must be net.IP or an IPv4 string
-//   - TypeIPv6Addr:             value must be net.IP or an IPv6 string
-//   - TypeVSA, TypeExtended:    not supported (returns ErrUnsupportedValueType)
+//   - TypeString, TypeOctets, TypeRaw: value must be string, []byte, or fmt.Stringer
+//   - TypeInteger:                      value must be uint32, uint, int, or a numeric string
+//   - TypeIPAddr:                        value must be net.IP or an IPv4 string
+//   - TypeIPv6Addr:                      value must be net.IP or an IPv6 string
+//   - TypeVSA, TypeExtended:             not supported (returns ErrUnsupportedValueType)
+//
+// TypeRaw is treated identically to TypeOctets so attributes loaded from
+// FreeRADIUS dictionaries whose type has no runtime codec can still be
+// carried on the wire as opaque bytes.
 //
 // Returns ErrUnknownAttribute when name is not registered in dict.
 func NewByName(dict *dictionary.Dictionary, name string, value any) (Attribute, error) {
@@ -35,7 +39,7 @@ func NewByName(dict *dictionary.Dictionary, name string, value any) (Attribute, 
 		return Attribute{}, fmt.Errorf("%w: %q", radiuserrors.ErrUnknownAttribute, name)
 	}
 	switch def.ValueType {
-	case dictionary.TypeString, dictionary.TypeOctets:
+	case dictionary.TypeString, dictionary.TypeOctets, dictionary.TypeRaw:
 		b, err := toStringBytes(value)
 		if err != nil {
 			return Attribute{}, fmt.Errorf("radius: attribute %q: %w", name, err)
@@ -100,12 +104,16 @@ func (p *Packet) GetOneByName(dict *dictionary.Dictionary, name string) (Attribu
 // a.Type. The returned types are:
 //
 //   - TypeString: string
-//   - TypeOctets: []byte (a copy)
+//   - TypeOctets, TypeRaw: []byte (a copy)
 //   - TypeInteger: uint32
 //   - TypeIPAddr: net.IP (4-byte)
 //   - TypeIPv6Addr: net.IP (16-byte)
 //   - TypeVSA: *VSAValue
 //   - TypeExtended: not supported
+//
+// TypeRaw is decoded as []byte (a copy of a.Value) so attributes loaded
+// from FreeRADIUS dictionaries whose type has no runtime codec can still
+// be inspected as raw bytes.
 //
 // Returns ErrUnknownAttribute when a.Type is not registered in dict.
 func (a Attribute) Decode(dict *dictionary.Dictionary) (any, error) {
@@ -116,7 +124,7 @@ func (a Attribute) Decode(dict *dictionary.Dictionary) (any, error) {
 	switch def.ValueType {
 	case dictionary.TypeString:
 		return string(a.Value), nil
-	case dictionary.TypeOctets:
+	case dictionary.TypeOctets, dictionary.TypeRaw:
 		return append([]byte(nil), a.Value...), nil
 	case dictionary.TypeInteger:
 		return a.Integer()

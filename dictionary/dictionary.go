@@ -63,6 +63,11 @@ const (
 	TypeVSA
 	// TypeExtended marks an RFC 6929 extended attribute.
 	TypeExtended
+	// TypeRaw marks an attribute whose wire encoding is not modeled by
+	// this library. Used for FreeRADIUS dictionary types such as ifid,
+	// ipv6prefix, tlvs, abinary, byte, short, signed, date — values are
+	// passed through as opaque octets without parsing.
+	TypeRaw
 )
 
 // String returns the canonical name of the value type.
@@ -82,6 +87,8 @@ func (v ValueType) String() string {
 		return "vsa"
 	case TypeExtended:
 		return "extended"
+	case TypeRaw:
+		return "raw"
 	}
 	return "unknown"
 }
