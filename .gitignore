@@ -1,0 +1,29 @@
+# Binaries
+/bin/
+/radius-tool
+*.exe
+*.test
+*.out
+
+# Coverage
+coverage.out
+coverage.html
+third-party-report.csv
+
+# Go workspace
+/vendor/
+go.work
+go.work.sum
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log

@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["main"]
+
+# Local development note: when running go commands that hit the network
+# (go mod download, go-licenses), set HTTP_PROXY/HTTPS_PROXY in your shell.
+# GitHub Actions runners do not need the proxy.
+env:
+  GO_VERSION: "1.26.4"
+  CGO_ENABLED: 0
+
+jobs:
+  test:
+    name: Lint, Test, Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Tidy and verify modules
+        run: |
+          go mod tidy
+          go mod verify
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: latest
+          args: --timeout=5m
+
+      - name: Test with coverage
+        run: |
+          go test -race -coverprofile=coverage.out -covermode=atomic ./...
+          go tool cover -func=coverage.out | tee coverage-func.txt
+          go tool cover -html=coverage.out -o coverage.html
+
+      - name: Enforce coverage threshold (soft until Phase 10)
+        run: |
+          set -e
+          TOTAL=$(awk '/^total:/ {print $NF}' coverage-func.txt | tr -d '%')
+          echo "Total coverage: ${TOTAL}%"
+          # Target is 90%. Phase 1-9 tolerate lower; Phase 10 will harden this.
+          THRESHOLD=0
+          if [ "${TOTAL%.*}" -lt "$THRESHOLD" ]; then
+            echo "Coverage ${TOTAL}% below threshold ${THRESHOLD}%" >&2
+            exit 1
+          fi
+
+      - name: Upload coverage artifacts
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage
+          path: |
+            coverage.out
+            coverage.html
+            coverage-func.txt
+          if-no-files-found: error
+
+      - name: Build CLI
+        run: go build -o bin/radius-tool ./cmd/radius-tool
+
+      - name: Upload radius-tool binary
+        uses: actions/upload-artifact@v7
+        with:
+          name: radius-tool
+          path: bin/radius-tool
+          if-no-files-found: error
+
+  license-check:
+    name: License Compliance
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Install go-licenses
+        run: go install github.com/google/go-licenses@latest
+
+      - name: Tidy modules
+        run: go mod tidy
+
+      - name: Check licenses are MIT-compatible
+        run: |
+          # Fail on disallowed licenses (e.g. GPL, AGPL, unlicensed).
+          # go-licenses check exits non-zero if any dependency is forbidden.
+          go-licenses check ./...
+        continue-on-error: true # Soft until THIRD_PARTY_LICENSES.md is finalized.
+
+      - name: Generate license report
+        run: |
+          go-licenses report ./... > third-party-report.csv || true
+          cat third-party-report.csv || true
+        continue-on-error: true
+
+      - name: Upload license report
+        uses: actions/upload-artifact@v7
+        with:
+          name: license-report
+          path: third-party-report.csv
+          if-no-files-found: warn
