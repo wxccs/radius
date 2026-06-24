@@ -92,11 +92,15 @@ func TestDefaultDictionary_UserPasswordMarkedEncrypted(t *testing.T) {
 }
 
 func TestDefaultDictionary_Size(t *testing.T) {
-	// RFC 2865 §5 defines 41 attribute types (1-16, 18-20, 22-39, 60-63;
-	// Types 17 and 21 are not assigned).
-	// RFC 2866 §5 defines 12 accounting attribute types (40-51).
-	// Total: 53.
-	assert.Equal(t, 53, Default().Size())
+	// RFC 2865 §5: 41 attribute types (1-16, 18-20, 22-39, 60-63).
+	// RFC 2866 §5: 12 accounting attribute types (40-51).
+	// RFC 2868: 10 tunnel attribute types (64-67, 69, 81-83, 90, 91).
+	// RFC 2869: 14 extension attribute types (70-80, 85, 87, 88).
+	// RFC 3162: 6 IPv6 attribute types (95-100).
+	// RFC 5176: 1 attribute type (101 Error-Cause).
+	// RFC 6929: 4 extended attribute types (241-244).
+	// Total: 41 + 12 + 10 + 14 + 6 + 1 + 4 = 88.
+	assert.Equal(t, 88, Default().Size())
 }
 
 func TestDictionary_RegisterAndLookup(t *testing.T) {
@@ -143,11 +147,10 @@ func TestDictionary_LookupMissing(t *testing.T) {
 
 func TestResetForTest(t *testing.T) {
 	// Snapshot the default dictionary and restore it after the test so that
-	// other tests in this package continue to see the RFC 2865/2866 entries.
+	// other tests in this package continue to see the full RFC attribute set.
 	t.Cleanup(func() {
 		ResetForTest()
-		registerRFC2865()
-		registerRFC2866()
+		registerStandardAttributes()
 	})
 
 	ResetForTest()
@@ -161,8 +164,7 @@ func TestRegisterIntoDefault(t *testing.T) {
 	// Snapshot/restore to keep the global dictionary clean.
 	t.Cleanup(func() {
 		ResetForTest()
-		registerRFC2865()
-		registerRFC2866()
+		registerStandardAttributes()
 	})
 
 	require.NoError(t, Register(AttributeDef{Type: 200, Name: "Test-Attr", ValueType: TypeOctets}))
@@ -203,4 +205,118 @@ func TestRegister_EmptyNameReturnsSentinel(t *testing.T) {
 	err := New().Register(AttributeDef{Type: 1, Name: ""})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, radiuserrors.ErrInvalidAttribute)
+}
+
+func TestDefaultDictionary_RFC2868TunnelAttributes(t *testing.T) {
+	cases := []struct {
+		typeVal byte
+		name    string
+		encrypt int
+		hasTag  bool
+	}{
+		{64, "Tunnel-Type", 0, true},
+		{65, "Tunnel-Medium-Type", 0, true},
+		{66, "Tunnel-Client-Endpoint", 0, true},
+		{67, "Tunnel-Server-Endpoint", 0, true},
+		{69, "Tunnel-Password", 1, true},
+		{81, "Tunnel-Private-Group-Id", 0, true},
+		{82, "Tunnel-Assignment-Id", 0, true},
+		{83, "Tunnel-Preference", 0, true},
+		{90, "Tunnel-Client-Auth-Id", 0, true},
+		{91, "Tunnel-Server-Auth-Id", 0, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			def, ok := Default().Lookup(tc.typeVal)
+			require.True(t, ok, "RFC 2868 attribute %d must be registered", tc.typeVal)
+			assert.Equal(t, tc.name, def.Name)
+			assert.Equal(t, tc.hasTag, def.HasTag, "%s must have HasTag=true", tc.name)
+			assert.Equal(t, tc.encrypt, def.Encrypt, "%s Encrypt mismatch", tc.name)
+		})
+	}
+}
+
+func TestDefaultDictionary_RFC2869Extensions(t *testing.T) {
+	cases := []struct {
+		typeVal   byte
+		name      string
+		valueType ValueType
+	}{
+		{70, "ARAP-Password", TypeOctets},
+		{71, "ARAP-Features", TypeOctets},
+		{72, "ARAP-Zone-Access", TypeInteger},
+		{73, "ARAP-Security", TypeInteger},
+		{74, "ARAP-Security-Data", TypeOctets},
+		{75, "Password-Retry", TypeInteger},
+		{76, "Prompt", TypeInteger},
+		{77, "Connect-Info", TypeString},
+		{78, "Configuration-Token", TypeString},
+		{79, "EAP-Message", TypeOctets},
+		{80, "Message-Authenticator", TypeOctets},
+		{85, "Acct-Interim-Interval", TypeInteger},
+		{87, "NAS-Port-Id", TypeString},
+		{88, "Framed-Pool", TypeString},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			def, ok := Default().Lookup(tc.typeVal)
+			require.True(t, ok, "RFC 2869 attribute %d must be registered", tc.typeVal)
+			assert.Equal(t, tc.name, def.Name)
+			assert.Equal(t, tc.valueType, def.ValueType)
+		})
+	}
+}
+
+func TestDefaultDictionary_RFC3162IPv6Attributes(t *testing.T) {
+	cases := []struct {
+		typeVal   byte
+		name      string
+		valueType ValueType
+	}{
+		{95, "NAS-IPv6-Address", TypeIPv6Addr},
+		{96, "Framed-Interface-Id", TypeOctets},
+		{97, "Framed-IPv6-Prefix", TypeOctets},
+		{98, "Login-IPv6-Host", TypeIPv6Addr},
+		{99, "Framed-IPv6-Route", TypeString},
+		{100, "Framed-IPv6-Pool", TypeString},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			def, ok := Default().Lookup(tc.typeVal)
+			require.True(t, ok, "RFC 3162 attribute %d must be registered", tc.typeVal)
+			assert.Equal(t, tc.name, def.Name)
+			assert.Equal(t, tc.valueType, def.ValueType)
+		})
+	}
+}
+
+func TestDefaultDictionary_RFC5176ErrorCause(t *testing.T) {
+	def, ok := Default().Lookup(101)
+	require.True(t, ok, "Error-Cause must be registered")
+	assert.Equal(t, "Error-Cause", def.Name)
+	assert.Equal(t, TypeInteger, def.ValueType)
+
+	byName, ok := Default().LookupName("Error-Cause")
+	require.True(t, ok)
+	assert.Equal(t, byte(101), byName.Type)
+}
+
+func TestDefaultDictionary_RFC6929ExtendedTypes(t *testing.T) {
+	cases := []struct {
+		typeVal byte
+		name    string
+	}{
+		{241, "Extended-Type-1"},
+		{242, "Extended-Type-2"},
+		{243, "Extended-Type-3"},
+		{244, "Extended-Type-4"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			def, ok := Default().Lookup(tc.typeVal)
+			require.True(t, ok, "RFC 6929 attribute %d must be registered", tc.typeVal)
+			assert.Equal(t, tc.name, def.Name)
+			assert.Equal(t, TypeExtended, def.ValueType)
+		})
+	}
 }

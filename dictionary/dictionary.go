@@ -207,12 +207,32 @@ func ResetForTest() {
 	defaultDict.byName = make(map[string]*AttributeDef)
 }
 
-// init seeds the default dictionary with the standard attributes defined by
-// RFC 2865 (RADIUS base) and RFC 2866 (Accounting). Vendor-specific and
-// RFC 2869+ attributes are added by callers as needed.
-func init() {
+// registerStandardAttributes seeds the default dictionary with all RFC-defined
+// standard attributes. Called once from init; tests that call ResetForTest
+// use this to restore the dictionary to a known-good state.
+func registerStandardAttributes() {
 	registerRFC2865()
 	registerRFC2866()
+	registerRFC2868()
+	registerRFC2869()
+	registerRFC3162()
+	registerRFC5176()
+	registerRFC6929()
+}
+
+// init seeds the default dictionary with the standard attributes defined by
+// RFC 2865 (RADIUS base), RFC 2866 (Accounting), RFC 2868 (Tunnel), RFC 2869
+// (Extensions), RFC 3162 (IPv6), RFC 5176 (Dynamic Authorization) and
+// RFC 6929 (Extended Attributes). Vendor-specific attributes are added by
+// callers as needed.
+//
+// RFC 2867 (Tunnel Accounting) and RFC 9445 (Packet Type Issues) do not
+// define new attribute types: RFC 2867 specifies how tunnel attributes
+// appear in Accounting-Request packets, and RFC 9445 clarifies
+// Code/Identifier/Length semantics. Both are therefore represented here by
+// documentation only.
+func init() {
+	registerStandardAttributes()
 }
 
 // registerRFC2865 registers the standard attributes from RFC 2865 §5.

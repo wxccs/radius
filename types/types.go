@@ -191,6 +191,26 @@ const (
 	AttrAcctInterimInterval  = 85
 )
 
+// ARAP attribute type numbers defined by RFC 2869 §5.6–5.10. Used by the
+// legacy Apple Remote Access Protocol; rarely seen on modern networks but
+// part of the standard dictionary.
+const (
+	AttrARAPPassword     = 70
+	AttrARAPFeatures     = 71
+	AttrARAPZoneAccess   = 72
+	AttrARAPSecurity     = 73
+	AttrARAPSecurityData = 74
+)
+
+// Additional RFC 2869 attribute type numbers.
+const (
+	AttrPasswordRetry      = 75
+	AttrPrompt             = 76
+	AttrConnectInfo        = 77
+	AttrConfigurationToken = 78
+	AttrFramedPool         = 88
+)
+
 // IPv6 attribute type numbers defined by RFC 3162. Full registration of these
 // into the dictionary happens in Phase 4 alongside IPv6 transport support.
 const (
@@ -219,6 +239,18 @@ const (
 
 // Error-Cause attribute (RFC 5176 §3.3). Used in CoA/NAK and Disconnect/NAK.
 const AttrErrorCause = 101
+
+// RFC 6929 extended attribute type numbers. These type codes introduce the
+// "extended" attribute format that allows more than 255 attributes and longer
+// values (up to 4111 octets for "long extended" types). The dictionary marks
+// them as TypeExtended; full codec support is implemented alongside the
+// extended-attribute handling in the packet layer.
+const (
+	AttrExtendedType1 = 241 // RFC 6929 §2.1: extended (255-octet value)
+	AttrExtendedType2 = 242 // RFC 6929 §2.2: long extended (4111-octet value)
+	AttrExtendedType3 = 243 // RFC 6929 §2.3: extended (255-octet value)
+	AttrExtendedType4 = 244 // RFC 6929 §2.4: extended (255-octet value)
+)
 
 // Packet and attribute length limits.
 //
