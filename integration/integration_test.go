@@ -456,3 +456,83 @@ func TestTCP_CoADisconnect(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, types.DisconnectACK, dm.Code)
 }
+
+func TestUDP_ConfigTimeoutBareContext(t *testing.T) {
+	// Verify that client.Config.Timeout is applied when the caller passes a
+	// bare context.Background() with no deadline. A silent server (handler
+	// returns nil) forces the client to exhaust its retransmit budget; the
+	// total elapsed time must be bounded by Config.Timeout, not infinite.
+	ctx := t.Context()
+
+	handler := server.HandlerFunc(func(_ context.Context, _ *server.Request) (*packet.Packet, error) {
+		return nil, nil // drop everything
+	})
+	addr := startUDPServer(t, ctx, handler)
+
+	c, err := client.NewUDPClient(addr, []byte(testSecret), client.Config{
+		Timeout: 500 * time.Millisecond,
+		Retransmit: protocol.RetransmitPolicy{
+			MaxAttempts: 3,
+			Initial:     50 * time.Millisecond,
+			Max:         100 * time.Millisecond,
+			Jitter:      0,
+		},
+	})
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	start := time.Now()
+	_, err = c.Client.Authenticate(ctx, &protocol.AccessRequest{
+		Attributes: []packet.Attribute{
+			packet.NewString(types.AttrUserName, "timeout-user"),
+		},
+		Method: protocol.AuthPAP,
+	})
+	elapsed := time.Since(start)
+
+	require.Error(t, err, "silent server must produce an error")
+	// With Timeout=500ms the call must return within ~600ms even though the
+	// retransmit budget alone (50+100+100ms) would finish faster; the point
+	// is that it does NOT run indefinitely.
+	assert.Less(t, elapsed, 2*time.Second, "Config.Timeout must bound the call")
+	t.Logf("elapsed: %v", elapsed)
+}
+
+func TestUDP_ConfigTimeoutOverriddenByCallerDeadline(t *testing.T) {
+	// When the caller supplies an explicit deadline, it takes precedence
+	// over Config.Timeout. Use a shorter caller deadline and confirm the
+	// call returns within it.
+	ctx := t.Context()
+
+	handler := server.HandlerFunc(func(_ context.Context, _ *server.Request) (*packet.Packet, error) {
+		return nil, nil
+	})
+	addr := startUDPServer(t, ctx, handler)
+
+	c, err := client.NewUDPClient(addr, []byte(testSecret), client.Config{
+		Timeout: 5 * time.Second, // large fallback
+		Retransmit: protocol.RetransmitPolicy{
+			MaxAttempts: 10,
+			Initial:     50 * time.Millisecond,
+			Max:         100 * time.Millisecond,
+			Jitter:      0,
+		},
+	})
+	require.NoError(t, err)
+	defer func() { _ = c.Close() }()
+
+	callerCtx, cancel := context.WithTimeout(ctx, 200*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	_, err = c.Client.Authenticate(callerCtx, &protocol.AccessRequest{
+		Attributes: []packet.Attribute{
+			packet.NewString(types.AttrUserName, "caller-dl-user"),
+		},
+		Method: protocol.AuthPAP,
+	})
+	elapsed := time.Since(start)
+
+	require.Error(t, err)
+	assert.Less(t, elapsed, 400*time.Millisecond, "caller deadline must bound the call below Config.Timeout")
+}

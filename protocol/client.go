@@ -129,11 +129,12 @@ type DisconnectResponse struct {
 
 // Client is a high-level RADIUS client. It is safe for concurrent use.
 type Client struct {
-	transport  Transport
-	secret     []byte
-	idPool     *IdentifierPool
-	retransmit RetransmitPolicy
-	log        radiuslog.Logger
+	transport      Transport
+	secret         []byte
+	idPool         *IdentifierPool
+	retransmit     RetransmitPolicy
+	defaultTimeout time.Duration
+	log            radiuslog.Logger
 }
 
 // Option configures a Client at construction time.
@@ -149,6 +150,15 @@ func WithRetransmitPolicy(p RetransmitPolicy) Option {
 // Identifier allocation across a single transport.
 func WithIdentifierPool(p *IdentifierPool) Option {
 	return func(c *Client) { c.idPool = p }
+}
+
+// WithDefaultTimeout sets a fallback deadline used when a caller invokes
+// Authenticate / Account / SendCoA / SendDisconnect with a context that
+// has no deadline. Zero (the default) disables the fallback, preserving
+// the caller-controlled behavior. A positive value ensures calls cannot
+// block indefinitely on a misbehaving server.
+func WithDefaultTimeout(d time.Duration) Option {
+	return func(c *Client) { c.defaultTimeout = d }
 }
 
 // WithLogger overrides the default (Nop) logger.
@@ -179,6 +189,20 @@ func (c *Client) Close() error {
 	return c.transport.Close()
 }
 
+// applyDefaultTimeout returns ctx unchanged when it already has a deadline
+// or when no defaultTimeout is configured. Otherwise it derives a child
+// context bounded by c.defaultTimeout. The returned cancel func is a no-op
+// when no derivation happened; callers should always defer cancel().
+func (c *Client) applyDefaultTimeout(ctx context.Context) (context.Context, context.CancelFunc) {
+	if c.defaultTimeout <= 0 {
+		return ctx, func() {}
+	}
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, c.defaultTimeout)
+}
+
 // Authenticate sends an Access-Request and waits for one of Access-Accept,
 // Access-Reject, or Access-Challenge.
 //
@@ -189,6 +213,8 @@ func (c *Client) Close() error {
 // When Method == AuthEAP a Message-Authenticator attribute is added to
 // the outgoing request (RFC 2869 §5.14) and verified on the reply.
 func (c *Client) Authenticate(ctx context.Context, req *AccessRequest) (*AccessResponse, error) {
+	ctx, cancel := c.applyDefaultTimeout(ctx)
+	defer cancel()
 	log := c.log.With("func", "protocol.Client.Authenticate")
 
 	allocated, err := c.acquireID(ctx)
@@ -245,6 +271,8 @@ func (c *Client) Authenticate(ctx context.Context, req *AccessRequest) (*AccessR
 
 // Account sends an Accounting-Request and waits for an Accounting-Response.
 func (c *Client) Account(ctx context.Context, req *AccountingRequest) (*AccountingResponse, error) {
+	ctx, cancel := c.applyDefaultTimeout(ctx)
+	defer cancel()
 	log := c.log.With("func", "protocol.Client.Account")
 
 	allocated, err := c.acquireID(ctx)
@@ -290,6 +318,8 @@ func (c *Client) Account(ctx context.Context, req *AccountingRequest) (*Accounti
 // SendCoA sends a CoA-Request (RFC 5176). A Message-Authenticator attribute
 // is added if absent (RFC 5176 §3.4 mandates it).
 func (c *Client) SendCoA(ctx context.Context, req *CoARequest) (*CoAResponse, error) {
+	ctx, cancel := c.applyDefaultTimeout(ctx)
+	defer cancel()
 	log := c.log.With("func", "protocol.Client.SendCoA")
 
 	allocated, err := c.acquireID(ctx)
@@ -339,6 +369,8 @@ func (c *Client) SendCoA(ctx context.Context, req *CoARequest) (*CoAResponse, er
 // SendDisconnect sends a Disconnect-Request (RFC 5176). A Message-Authenticator
 // attribute is added if absent (RFC 5176 §3.4 mandates it).
 func (c *Client) SendDisconnect(ctx context.Context, req *DisconnectRequest) (*DisconnectResponse, error) {
+	ctx, cancel := c.applyDefaultTimeout(ctx)
+	defer cancel()
 	log := c.log.With("func", "protocol.Client.SendDisconnect")
 
 	allocated, err := c.acquireID(ctx)

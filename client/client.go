@@ -98,6 +98,7 @@ func NewUDPClient(server *net.UDPAddr, secret []byte, cfg Config) (*UDPClient, e
 	}
 	opts := []protocol.Option{
 		protocol.WithRetransmitPolicy(cfg.retransmitOrZero()),
+		protocol.WithDefaultTimeout(cfg.Timeout),
 	}
 	if cfg.Logger != nil {
 		opts = append(opts, protocol.WithLogger(cfg.Logger))
@@ -143,6 +144,7 @@ func NewTCPClient(server *net.TCPAddr, secret []byte, cfg Config) (*TCPClient, e
 		// exchangeWithRetransmit still loops, MaxAttempts=1 means only the
 		// initial transmission is performed.
 		protocol.WithRetransmitPolicy(protocol.RetransmitPolicy{MaxAttempts: 1}),
+		protocol.WithDefaultTimeout(cfg.Timeout),
 	}
 	if cfg.Logger != nil {
 		opts = append(opts, protocol.WithLogger(cfg.Logger))

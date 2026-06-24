@@ -641,6 +641,71 @@ func TestClient_Authenticate_VerificationFailureRetries(t *testing.T) {
 	assert.Equal(t, int32(2), calls.Load(), "verification failure should trigger retransmission")
 }
 
+// TestClient_DefaultTimeout_AppliedWhenCtxHasNoDeadline verifies that
+// WithDefaultTimeout derives a bounded context when the caller passes a
+// bare context.Background(). The wrapper transport records the deadline
+// it observes.
+func TestClient_DefaultTimeout_AppliedWhenCtxHasNoDeadline(t *testing.T) {
+	secret := []byte("dt-secret")
+	tr := &fakeTransport{}
+	tr.replyFn = func(raw []byte) ([]byte, error) {
+		return nil, errors.New("placeholder")
+	}
+	wrapped := &ctxCapturingTransport{inner: tr}
+	c := NewClient(wrapped, secret,
+		WithDefaultTimeout(50*time.Millisecond),
+		WithRetransmitPolicy(RetransmitPolicy{MaxAttempts: 1}))
+
+	start := time.Now()
+	_, err := c.Authenticate(context.Background(), &AccessRequest{
+		Attributes: []packet.Attribute{packet.NewString(types.AttrUserName, "alice")},
+	})
+	require.Error(t, err)
+
+	dl, ok := wrapped.lastDeadline.Load().(time.Time)
+	require.True(t, ok, "Exchange must receive a context with a deadline")
+	delta := dl.Sub(start)
+	assert.InDelta(t, 50, delta.Milliseconds(), 20, "derived deadline should be ~50ms from start, got %v", delta)
+}
+
+// TestClient_DefaultTimeout_SkippedWhenCtxHasDeadline verifies that an
+// explicit caller deadline is preserved unchanged.
+func TestClient_DefaultTimeout_SkippedWhenCtxHasDeadline(t *testing.T) {
+	secret := []byte("dt-secret-2")
+	tr := &fakeTransport{}
+	wrapped := &ctxCapturingTransport{inner: tr}
+	c := NewClient(wrapped, secret,
+		WithDefaultTimeout(50*time.Millisecond),
+		WithRetransmitPolicy(RetransmitPolicy{MaxAttempts: 1}))
+
+	callerDL := time.Now().Add(5 * time.Second)
+	ctx, cancel := context.WithDeadline(context.Background(), callerDL)
+	defer cancel()
+	_, _ = c.Authenticate(ctx, &AccessRequest{
+		Attributes: []packet.Attribute{packet.NewString(types.AttrUserName, "alice")},
+	})
+
+	dl, ok := wrapped.lastDeadline.Load().(time.Time)
+	require.True(t, ok)
+	assert.True(t, dl.Equal(callerDL), "caller deadline must be preserved, got %v want %v", dl, callerDL)
+}
+
+// ctxCapturingTransport wraps a Transport and records the deadline of the
+// context passed to each Exchange call.
+type ctxCapturingTransport struct {
+	inner        Transport
+	lastDeadline atomic.Value // time.Time
+}
+
+func (t *ctxCapturingTransport) Exchange(ctx context.Context, raw []byte) ([]byte, error) {
+	if dl, ok := ctx.Deadline(); ok {
+		t.lastDeadline.Store(dl)
+	}
+	return t.inner.Exchange(ctx, raw)
+}
+
+func (t *ctxCapturingTransport) Close() error { return t.inner.Close() }
+
 func TestNewAccessRequestAuthenticator_Distinct(t *testing.T) {
 	a1, err := NewAccessRequestAuthenticator()
 	require.NoError(t, err)
