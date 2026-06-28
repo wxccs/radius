@@ -98,36 +98,36 @@ func (p *Packet) Marshal(secret []byte) ([]byte, error) {
 	// computing Message-Authenticator (RFC 3579 §3.2). For Access-Request
 	// this is the caller-supplied random value (RFC 2865 §3); for reply
 	// packets it is the Request Authenticator of the corresponding request,
-	// carried in p.Authenticator by the server handler. Accounting-Request,
-	// CoA-Request and Disconnect-Request leave the field zero here: their
-	// Request Authenticator is derived from the attributes (including the MA
-	// Value) and is computed after the MA below, so the MA for those codes
-	// is signed over a zero Authenticator field (historic behavior).
+	// carried in p.Authenticator by the server handler. For Accounting-Request,
+	// CoA-Request and Disconnect-Request the Request Authenticator is derived
+	// from the attributes via the Accounting-Request formula (RFC 2866 §3,
+	// RFC 5176 §2.3) with the MA Value zeroed, so it can be computed before
+	// the MA and used as the HMAC input.
 	switch p.Code {
 	case types.AccessRequest,
 		types.AccessAccept, types.AccessReject, types.AccessChallenge,
 		types.AccountingResponse,
 		types.CoAACK, types.CoANAK, types.DisconnectACK, types.DisconnectNAK:
 		copy(out[4:20], p.Authenticator[:])
+	case types.AccountingRequest, types.CoARequest, types.DisconnectRequest:
+		auth := crypto.ComputeAccountingRequestAuthenticator(byte(p.Code), p.Identifier, uint16(length), out[20:], secret)
+		copy(out[4:20], auth[:])
 	}
 
-	// Compute and write Message-Authenticator before the final Authenticator
-	// is calculated (RFC 3579 §3.2). The MA Value field was zeroed above.
+	// Compute and write Message-Authenticator. The HMAC input covers the
+	// Request Authenticator now written (RFC 3579 §3.2). The MA Value field
+	// was zeroed above.
 	if msgAuthOffset >= 0 {
 		mac := crypto.ComputeMessageAuthenticator(out, secret)
 		valueStart := 20 + msgAuthOffset + 2
 		copy(out[valueStart:valueStart+16], mac[:])
 	}
 
-	// Compute the final Authenticator. For reply packets this is the Response
-	// Authenticator, overwriting the Request Authenticator used as HMAC
-	// input above. For Accounting-Request, CoA-Request and Disconnect-Request
-	// this is the Request Authenticator (RFC 2866 §3, RFC 5176 §2.3),
-	// computed after the MA Value is in place.
+	// Compute and write the Response Authenticator for reply packets. This
+	// overwrites the Request Authenticator that was used as HMAC input above.
+	// Request packets (Access-Request, Accounting-Request, CoA-Request,
+	// Disconnect-Request) keep the Request Authenticator already written.
 	switch p.Code {
-	case types.AccountingRequest, types.CoARequest, types.DisconnectRequest:
-		auth := crypto.ComputeAccountingRequestAuthenticator(byte(p.Code), p.Identifier, uint16(length), out[20:], secret)
-		copy(out[4:20], auth[:])
 	case types.AccessAccept, types.AccessReject, types.AccessChallenge,
 		types.AccountingResponse,
 		types.CoAACK, types.CoANAK, types.DisconnectACK, types.DisconnectNAK:
@@ -223,13 +223,15 @@ func (p *Packet) Unmarshal(data []byte, secret []byte) error {
 
 	// Accounting-Request, CoA-Request, and Disconnect-Request all carry
 	// an authenticator computed via the Accounting-Request formula
-	// (RFC 2866 §3, RFC 5176 §2.3). We can verify them without external
-	// state because the formula does not depend on a prior packet's
-	// authenticator.
+	// (RFC 2866 §3, RFC 5176 §2.3) with the Message-Authenticator Value
+	// zeroed (RFC 3579 §3.2). The raw attributes carry the filled MA
+	// Value, so zero it in a copy before recomputing.
 	if code == types.AccountingRequest ||
 		code == types.CoARequest ||
 		code == types.DisconnectRequest {
-		expected := crypto.ComputeAccountingRequestAuthenticator(byte(code), id, length, data[20:length], secret)
+		attrCopy := append([]byte(nil), data[20:length]...)
+		zeroMessageAuthenticatorValueInPlace(attrCopy)
+		expected := crypto.ComputeAccountingRequestAuthenticator(byte(code), id, length, attrCopy, secret)
 		if !crypto.EqualConstantTime(expected[:], auth[:]) {
 			return radiuserrors.ErrAuthenticatorMismatch
 		}
@@ -324,20 +326,13 @@ func VerifyMessageAuthenticator(rawPacket []byte, requestAuth [16]byte, secret [
 	//   - Reply packets: the raw Authenticator field holds the Response
 	//     Authenticator; replace it with requestAuth (the Request
 	//     Authenticator of the corresponding request).
-	//   - Access-Request: the raw Authenticator field already holds the
-	//     Request Authenticator; preserve it.
-	//   - Accounting-Request, CoA-Request, Disconnect-Request: Marshal
-	//     computes the MA with a zero Authenticator field (the Request
-	//     Authenticator is written afterwards); zero it here to match.
-	//     Full RFC 3579 §3.2 compliance for these request codes (signing
-	//     the MA over the Request Authenticator) is not yet implemented.
+	//   - Request packets (Access-Request, Accounting-Request, CoA-Request,
+	//     Disconnect-Request): the raw Authenticator field already holds
+	//     the Request Authenticator; preserve it.
 	switch code {
-	case types.AccessRequest:
+	case types.AccessRequest,
+		types.AccountingRequest, types.CoARequest, types.DisconnectRequest:
 		// preserve raw Authenticator field
-	case types.AccountingRequest, types.CoARequest, types.DisconnectRequest:
-		for i := 4; i < 20; i++ {
-			copyBuf[i] = 0
-		}
 	default:
 		copy(copyBuf[4:20], requestAuth[:])
 	}
@@ -348,6 +343,29 @@ func VerifyMessageAuthenticator(rawPacket []byte, requestAuth [16]byte, secret [
 		return radiuserrors.ErrMessageAuthenticatorMismatch
 	}
 	return nil
+}
+
+// zeroMessageAuthenticatorValueInPlace scans attrs for a Message-Authenticator
+// attribute (Type 80, Length 18) and zeroes its 16-byte Value field in place.
+// Used to recompute the Request Authenticator of Accounting-Request,
+// CoA-Request and Disconnect-Request packets, which Marshal signs with the
+// MA Value zeroed (RFC 3579 §3.2, RFC 5176 §2.3). If no MA attribute is
+// present, attrs is unchanged.
+func zeroMessageAuthenticatorValueInPlace(attrs []byte) {
+	for i := 0; i+2 <= len(attrs); {
+		attrType := attrs[i]
+		attrLen := attrs[i+1]
+		if attrLen < 2 || int(attrLen) > len(attrs)-i {
+			return
+		}
+		if attrType == types.AttrMessageAuthenticator && attrLen == 18 {
+			for j := i + 2; j < i+18; j++ {
+				attrs[j] = 0
+			}
+			return
+		}
+		i += int(attrLen)
+	}
 }
 
 // Add appends an attribute to the packet.

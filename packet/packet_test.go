@@ -773,6 +773,137 @@ func TestVerifyMessageAuthenticator_ThirdPartyReplySignature(t *testing.T) {
 		radiuserrors.ErrMessageAuthenticatorMismatch)
 }
 
+// TestPacketMarshal_MessageAuthenticator_AccountingRequest_IndependentHMAC
+// recomputes the Accounting-Request Request Authenticator and
+// Message-Authenticator with standalone MD5/HMAC-MD5 calculations, ensuring
+// the library signs both per RFC 3579 §3.2 / RFC 5176 §2.3: RequestAuth is
+// computed over attributes with the MA Value zeroed, and MA is computed over
+// the Request Authenticator. This guards against the historic behavior where
+// MA was signed over a zero Authenticator field and RequestAuth was computed
+// over the filled MA Value.
+func TestPacketMarshal_MessageAuthenticator_AccountingRequest_IndependentHMAC(t *testing.T) {
+	secret := []byte("acct-ma-secret")
+
+	pkt := &Packet{
+		Code:       types.AccountingRequest,
+		Identifier: 17,
+		Attributes: []Attribute{
+			NewInteger(types.AttrAcctStatusType, 1), // Start
+			NewString(types.AttrAcctSessionID, "sess-1"),
+			NewOctets(types.AttrMessageAuthenticator, make([]byte, 16)),
+		},
+	}
+	raw, err := pkt.Marshal(secret)
+	require.NoError(t, err)
+
+	length := binary.BigEndian.Uint16(raw[2:4])
+	body := raw[20:length]
+
+	// Locate the MA attribute in the marshaled body.
+	maOff := -1
+	for i := 0; i+2 <= len(body); {
+		if body[i] == types.AttrMessageAuthenticator && body[i+1] == 18 {
+			maOff = i
+			break
+		}
+		i += int(body[i+1])
+	}
+	require.GreaterOrEqual(t, maOff, 0, "MA must be present")
+
+	// Independently compute the Request Authenticator: MD5 over
+	// Code+ID+Length+16 zeros+attributes(with MA Value zeroed)+secret.
+	bodyZeroedMA := append([]byte(nil), body...)
+	for j := maOff + 2; j < maOff+18; j++ {
+		bodyZeroedMA[j] = 0
+	}
+	rh := md5.New()
+	rh.Write(raw[0:4])
+	rh.Write(make([]byte, 16))
+	rh.Write(bodyZeroedMA)
+	rh.Write(secret)
+	wantReqAuth := rh.Sum(nil)
+	assert.Equal(t, wantReqAuth, raw[4:20],
+		"Accounting-Request Authenticator must be MD5 over attributes with MA Value zeroed (RFC 5176 §2.3)")
+
+	// Independently compute MA: HMAC-MD5 over Code+ID+Length+RequestAuth+
+	// attributes(with MA Value zeroed).
+	maInput := make([]byte, 20+len(bodyZeroedMA))
+	copy(maInput[0:4], raw[0:4])
+	copy(maInput[4:20], wantReqAuth)
+	copy(maInput[20:], bodyZeroedMA)
+	mac := hmac.New(md5.New, secret)
+	mac.Write(maInput)
+	wantMA := mac.Sum(nil)
+	assert.Equal(t, wantMA, body[maOff+2:maOff+18],
+		"MA must be HMAC-MD5 over the Request Authenticator (RFC 3579 §3.2)")
+
+	// The library must verify this packet. For request packets requestAuth
+	// is ignored (the raw Authenticator field holds the Request Authenticator).
+	require.NoError(t, VerifyMessageAuthenticator(raw, [16]byte{}, secret))
+
+	// Unmarshal must also pass (it verifies RequestAuth with MA Value zeroed).
+	p := &Packet{}
+	require.NoError(t, p.Unmarshal(raw, secret))
+}
+
+// TestVerifyMessageAuthenticator_ThirdPartyCoARequestSignature constructs a
+// CoA-Request signed exactly as a compliant server (e.g. FreeRADIUS acting
+// as a CoA client) would: RequestAuth computed over attributes with the MA
+// Value zeroed, then MA computed over the Request Authenticator. The library
+// must verify such a request. This covers the request-packet half of the
+// RFC 3579 §3.2 / RFC 5176 §3.4 interop that the historic zero-field signing
+// broke.
+func TestVerifyMessageAuthenticator_ThirdPartyCoARequestSignature(t *testing.T) {
+	secret := []byte("coa-interop-secret")
+
+	// Build the CoA-Request body: NAS-IP + Acct-Session-Id + zeroed MA.
+	body := []byte{}
+	body = append(body, byte(types.AttrNASIPAddress), 6, 10, 0, 0, 1)
+	body = append(body, byte(types.AttrAcctSessionID), 9, 's', 'e', 's', 's', '2', 0, 0)
+	maOffInBody := len(body)
+	body = append(body, types.AttrMessageAuthenticator, 18)
+	body = append(body, make([]byte, 16)...)
+
+	length := 20 + len(body)
+	raw := make([]byte, length)
+	raw[0] = byte(types.CoARequest)
+	raw[1] = 23
+	binary.BigEndian.PutUint16(raw[2:4], uint16(length))
+	copy(raw[20:], body)
+
+	// Compute RequestAuth = MD5(Code+ID+Length+16 zeros+attributes(MA Value 0)+secret).
+	rh := md5.New()
+	rh.Write(raw[0:4])
+	rh.Write(make([]byte, 16))
+	rh.Write(body) // body already has MA Value zeroed
+	rh.Write(secret)
+	reqAuth := rh.Sum(nil)
+	copy(raw[4:20], reqAuth)
+
+	// Compute MA = HMAC-MD5(secret, Code+ID+Length+RequestAuth+attributes(MA Value 0)).
+	mac := hmac.New(md5.New, secret)
+	mac.Write(raw[0:4])
+	mac.Write(reqAuth)
+	mac.Write(body)
+	ma := mac.Sum(nil)
+	copy(raw[20+maOffInBody+2:], ma)
+
+	// Library verification must succeed (requestAuth ignored for request packets).
+	require.NoError(t, VerifyMessageAuthenticator(raw, [16]byte{}, secret),
+		"library must verify a third-party CoA-Request signed per RFC 3579 §3.2")
+
+	// Unmarshal must verify the Request Authenticator.
+	p := &Packet{}
+	require.NoError(t, p.Unmarshal(raw, secret),
+		"Unmarshal must verify RequestAuth computed over MA-Value-zeroed attributes")
+
+	// Tampering with the body must invalidate MA.
+	tampered := append([]byte(nil), raw...)
+	tampered[22] ^= 0xff
+	assert.ErrorIs(t, VerifyMessageAuthenticator(tampered, [16]byte{}, secret),
+		radiuserrors.ErrMessageAuthenticatorMismatch)
+}
+
 func TestNewIPv6Addr_Invalid(t *testing.T) {
 	// A nil net.IP falls back to 16 zero bytes.
 	a := NewIPv6Addr(95, nil)
