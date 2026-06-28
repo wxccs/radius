@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wxccs/radius/dictionary/parser"
+	"github.com/wxccs/radius/v2/dictionary/parser"
 )
 
 // TestGen_FullOutput exercises the complete pipeline with a mixed

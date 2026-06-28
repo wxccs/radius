@@ -34,7 +34,7 @@
 // bytes out. Retransmission, Identifier allocation, and duplicate detection
 // are deferred to the protocol layer.
 //
-// Logging is performed through the github.com/wxccs/radius/log interface.
+// Logging is performed through the github.com/wxccs/radius/v2/log interface.
 // Every log record carries a `func` attribute whose value is the
 // project-root-relative dotted path to the emitting function (e.g.
 // "transport.UDPTransport.ReadPacket"). The package does not log shared
@@ -52,7 +52,7 @@ import (
 
 	piondtls "github.com/pion/dtls/v3"
 
-	radiuslog "github.com/wxccs/radius/log"
+	radiuslog "github.com/wxccs/radius/v2/log"
 )
 
 // PacketListener receives RADIUS packets from a specific transport (a UDP

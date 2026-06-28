@@ -1,4 +1,4 @@
-module github.com/wxccs/radius
+module github.com/wxccs/radius/v2
 
 go 1.26.4
 

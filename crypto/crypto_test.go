@@ -34,7 +34,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	radiuserrors "github.com/wxccs/radius/errors"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
 )
 
 // mustHex decodes a hex string, failing the test if it is malformed.

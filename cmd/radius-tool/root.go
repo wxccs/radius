@@ -31,7 +31,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	radiuslog "github.com/wxccs/radius/log"
+	radiuslog "github.com/wxccs/radius/v2/log"
 )
 
 // newRootCmd builds the root command with all subcommands attached.

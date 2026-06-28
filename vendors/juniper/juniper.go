@@ -7,8 +7,8 @@
 package juniper
 
 import (
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/vendors"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/vendors"
 )
 
 // VendorID is Juniper Networks' SMI Network Management Private

@@ -26,7 +26,7 @@ import (
 	"net"
 	"testing"
 
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // benchPacket is a representative Access-Request with a mix of string,

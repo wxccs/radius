@@ -27,7 +27,7 @@ import (
 	"crypto/rand"
 	"encoding/binary"
 
-	radiuserrors "github.com/wxccs/radius/errors"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
 )
 
 // RFC 2868 §3.3 Tunnel-Password encoding.

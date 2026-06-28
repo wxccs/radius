@@ -32,9 +32,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/server"
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/server"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // echoAccessHandler replies with Access-Accept for any Access-Request.

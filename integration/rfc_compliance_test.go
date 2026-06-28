@@ -32,11 +32,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wxccs/radius/crypto"
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/protocol"
-	"github.com/wxccs/radius/server"
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/crypto"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/protocol"
+	"github.com/wxccs/radius/v2/server"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // TestRFC2865_AccessChallenge verifies the Access-Challenge flow

@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/types"
 )
 
 func TestRequest_Reply(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wxccs/radius/vendors"
+	"github.com/wxccs/radius/v2/vendors"
 )
 
 func TestNewAVPair_RoundTrip(t *testing.T) {

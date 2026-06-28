@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	radius "github.com/wxccs/radius"
+	radius "github.com/wxccs/radius/v2"
 )
 
 // startUDPServer launches an in-process UDP RADIUS server on a

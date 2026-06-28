@@ -29,8 +29,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	radiuserrors "github.com/wxccs/radius/errors"
-	"github.com/wxccs/radius/types"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
+	"github.com/wxccs/radius/v2/types"
 )
 
 func TestExtendedAttribute_MarshalShort(t *testing.T) {

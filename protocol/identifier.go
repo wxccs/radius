@@ -25,7 +25,7 @@ package protocol
 import (
 	"context"
 
-	radiuslog "github.com/wxccs/radius/log"
+	radiuslog "github.com/wxccs/radius/v2/log"
 )
 
 // IdentifierPool allocates RADIUS Identifier values (0..255) for in-flight

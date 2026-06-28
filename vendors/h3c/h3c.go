@@ -8,8 +8,8 @@
 package h3c
 
 import (
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/vendors"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/vendors"
 )
 
 // VendorID is H3C / 3Com's SMI Network Management Private Enterprise

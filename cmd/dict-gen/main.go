@@ -18,8 +18,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/wxccs/radius/dictionary/gen"
-	"github.com/wxccs/radius/dictionary/parser"
+	"github.com/wxccs/radius/v2/dictionary/gen"
+	"github.com/wxccs/radius/v2/dictionary/parser"
 )
 
 func main() {

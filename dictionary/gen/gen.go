@@ -21,7 +21,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/wxccs/radius/dictionary/parser"
+	"github.com/wxccs/radius/v2/dictionary/parser"
 )
 
 // Options configures the generator.
@@ -108,10 +108,10 @@ func Gen(p *parser.Dict, w io.Writer, opt Options) error {
 // the generated code are included so the output is gofmt-clean.
 func emitImports(w io.Writer, needsNet bool) error {
 	if !needsNet {
-		_, err := fmt.Fprintf(w, "import (\n\t\"github.com/wxccs/radius/packet\"\n)\n\n")
+		_, err := fmt.Fprintf(w, "import (\n\t\"github.com/wxccs/radius/v2/packet\"\n)\n\n")
 		return err
 	}
-	_, err := fmt.Fprintf(w, "import (\n\t\"net\"\n\n\t\"github.com/wxccs/radius/packet\"\n)\n\n")
+	_, err := fmt.Fprintf(w, "import (\n\t\"net\"\n\n\t\"github.com/wxccs/radius/v2/packet\"\n)\n\n")
 	return err
 }
 

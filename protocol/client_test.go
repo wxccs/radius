@@ -34,10 +34,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	radiuserrors "github.com/wxccs/radius/errors"
-	radiuslog "github.com/wxccs/radius/log"
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/types"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
+	radiuslog "github.com/wxccs/radius/v2/log"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // fakeTransport is a test Transport that records the bytes sent and

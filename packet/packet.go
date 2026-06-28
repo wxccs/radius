@@ -32,9 +32,9 @@ package packet
 import (
 	"encoding/binary"
 
-	"github.com/wxccs/radius/crypto"
-	radiuserrors "github.com/wxccs/radius/errors"
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/crypto"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // Packet is a RADIUS protocol data unit. The Authenticator field holds the

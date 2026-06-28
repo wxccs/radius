@@ -41,7 +41,7 @@ import (
 	"fmt"
 	"sync"
 
-	radiuserrors "github.com/wxccs/radius/errors"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
 )
 
 // ValueType describes how an attribute's Value field is encoded on the wire.

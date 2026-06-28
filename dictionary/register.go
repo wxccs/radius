@@ -3,7 +3,7 @@ package dictionary
 import (
 	"fmt"
 
-	"github.com/wxccs/radius/dictionary/parser"
+	"github.com/wxccs/radius/v2/dictionary/parser"
 )
 
 // RegisterFromDict merges every entry from p into d. Attributes are

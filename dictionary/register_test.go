@@ -5,7 +5,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/wxccs/radius/dictionary/parser"
+	"github.com/wxccs/radius/v2/dictionary/parser"
 )
 
 func TestRegisterFromDict_BasicAttributes(t *testing.T) {

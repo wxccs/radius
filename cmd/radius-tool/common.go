@@ -10,10 +10,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/wxccs/radius/client"
-	"github.com/wxccs/radius/dictionary"
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/protocol"
+	"github.com/wxccs/radius/v2/client"
+	"github.com/wxccs/radius/v2/dictionary"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/protocol"
 )
 
 // resolveServerAddr parses host:port into a UDP and a TCP address.

@@ -3,8 +3,8 @@ package protocol
 import (
 	"net"
 
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // AccessRequestBuilder fluently constructs an *AccessRequest. The zero value

@@ -8,10 +8,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wxccs/radius/dictionary"
-	"github.com/wxccs/radius/dictionary/parser"
-	"github.com/wxccs/radius/errors"
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/dictionary"
+	"github.com/wxccs/radius/v2/dictionary/parser"
+	"github.com/wxccs/radius/v2/errors"
+	"github.com/wxccs/radius/v2/types"
 )
 
 func TestNewByName_StringAndOctets(t *testing.T) {

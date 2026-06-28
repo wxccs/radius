@@ -25,7 +25,7 @@ package dictionary
 import (
 	"errors"
 
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // registerRFC5176 registers the single attribute defined by RFC 5176

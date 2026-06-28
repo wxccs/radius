@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/wxccs/radius/dictionary"
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/dictionary"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // Format renders p as a multi-line human-readable string.

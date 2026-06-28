@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	radiuserrors "github.com/wxccs/radius/errors"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
 )
 
 // TLSListener accepts incoming RADIUS/TLS connections (RFC 6614). TLS

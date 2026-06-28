@@ -27,7 +27,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/wxccs/radius/protocol"
+	"github.com/wxccs/radius/v2/protocol"
 )
 
 func newDisconnectCmd() *cobra.Command {

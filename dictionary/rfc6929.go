@@ -25,7 +25,7 @@ package dictionary
 import (
 	"errors"
 
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // registerRFC6929 registers the extended attribute type codes defined by

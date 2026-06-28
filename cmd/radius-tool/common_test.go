@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/types"
 )
 
 func TestResolveAttrType_CanonicalName(t *testing.T) {

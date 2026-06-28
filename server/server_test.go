@@ -32,11 +32,11 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wxccs/radius/client"
-	radiuslog "github.com/wxccs/radius/log"
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/protocol"
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/client"
+	radiuslog "github.com/wxccs/radius/v2/log"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/protocol"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // echoHandler replies with Access-Accept for any Access-Request, echoing

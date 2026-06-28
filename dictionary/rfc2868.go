@@ -25,7 +25,7 @@ package dictionary
 import (
 	"errors"
 
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // registerRFC2868 registers tunnel attributes from RFC 2868. All tunnel

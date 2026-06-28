@@ -25,7 +25,7 @@ package dictionary
 import (
 	"errors"
 
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // registerRFC3162 registers IPv6 attributes from RFC 3162. NAS-IPv6-Address

@@ -5,9 +5,9 @@ import (
 	"net"
 	"strings"
 
-	radiuslog "github.com/wxccs/radius/log"
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/types"
+	radiuslog "github.com/wxccs/radius/v2/log"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // Reply returns a *packet.Packet with the given Code, copying the Request's

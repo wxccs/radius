@@ -4,7 +4,7 @@ import (
 	"crypto/sha1"
 	"fmt"
 
-	radiuserrors "github.com/wxccs/radius/errors"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
 )
 
 // MPPE key lengths supported by GetAsymmetricStartKey (RFC 3079 §3.3).

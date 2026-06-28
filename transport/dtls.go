@@ -9,7 +9,7 @@ import (
 
 	piondtls "github.com/pion/dtls/v3"
 
-	radiuserrors "github.com/wxccs/radius/errors"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
 )
 
 // DTLSListener accepts incoming RADIUS/DTLS connections (RFC 7360). DTLS

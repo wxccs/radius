@@ -6,8 +6,8 @@ import (
 	"net"
 	"strconv"
 
-	"github.com/wxccs/radius/dictionary"
-	radiuserrors "github.com/wxccs/radius/errors"
+	"github.com/wxccs/radius/v2/dictionary"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
 )
 
 // VSAValue is the decoded form of a Vendor-Specific attribute (Type 26).

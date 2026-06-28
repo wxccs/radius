@@ -28,8 +28,8 @@ import (
 	"sync"
 	"time"
 
-	radiuserrors "github.com/wxccs/radius/errors"
-	"github.com/wxccs/radius/types"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // udpReadBufferSize is the upper bound on a single datagram read. RADIUS

@@ -28,11 +28,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wxccs/radius/client"
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/protocol"
-	"github.com/wxccs/radius/server"
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/client"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/protocol"
+	"github.com/wxccs/radius/v2/server"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // BenchmarkUDP_AccessRequestRoundTrip measures the full client→server→client

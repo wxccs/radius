@@ -42,9 +42,9 @@ import (
 	"net"
 	"time"
 
-	radiuslog "github.com/wxccs/radius/log"
-	"github.com/wxccs/radius/protocol"
-	"github.com/wxccs/radius/transport"
+	radiuslog "github.com/wxccs/radius/v2/log"
+	"github.com/wxccs/radius/v2/protocol"
+	"github.com/wxccs/radius/v2/transport"
 )
 
 // Config controls the behavior of a constructed Client. Zero values fall

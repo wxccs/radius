@@ -8,8 +8,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/wxccs/radius/dictionary"
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/dictionary"
+	"github.com/wxccs/radius/v2/types"
 )
 
 func TestFormat_NilPacket(t *testing.T) {

@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	radiuserrors "github.com/wxccs/radius/errors"
-	radiuslog "github.com/wxccs/radius/log"
-	"github.com/wxccs/radius/types"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
+	radiuslog "github.com/wxccs/radius/v2/log"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // readFramedStream reads one Length-framed RADIUS packet from a byte-

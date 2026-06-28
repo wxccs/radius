@@ -25,7 +25,7 @@ package dictionary
 import (
 	"errors"
 
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // registerRFC2869 registers extension attributes from RFC 2869. This covers

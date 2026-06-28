@@ -38,8 +38,8 @@ import (
 	"crypto/subtle"
 	"encoding/binary"
 
-	radiuserrors "github.com/wxccs/radius/errors"
-	"github.com/wxccs/radius/types"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // ComputeResponseAuthenticator calculates the Response Authenticator used by

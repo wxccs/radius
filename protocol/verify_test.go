@@ -30,9 +30,9 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	radiuserrors "github.com/wxccs/radius/errors"
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/types"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // RFC 2865 §7.1 vectors, kept in sync with packet/packet_test.go for parity.

@@ -16,8 +16,8 @@ package vendors
 import (
 	"fmt"
 
-	radiuserrors "github.com/wxccs/radius/errors"
-	"github.com/wxccs/radius/packet"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
+	"github.com/wxccs/radius/v2/packet"
 )
 
 // NewVSA constructs a Vendor-Specific attribute for the given vendor.

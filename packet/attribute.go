@@ -26,8 +26,8 @@ import (
 	"encoding/binary"
 	"net"
 
-	radiuserrors "github.com/wxccs/radius/errors"
-	"github.com/wxccs/radius/types"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // Attribute is a single RADIUS TLV: a 1-byte Type, a 1-byte Length covering

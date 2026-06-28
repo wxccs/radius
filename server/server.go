@@ -46,10 +46,10 @@ import (
 	"sync"
 	"time"
 
-	radiuslog "github.com/wxccs/radius/log"
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/transport"
-	"github.com/wxccs/radius/types"
+	radiuslog "github.com/wxccs/radius/v2/log"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/transport"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // Request bundles the parsed packet, the shared secret used to verify it,

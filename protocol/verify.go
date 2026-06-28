@@ -23,8 +23,8 @@
 package protocol
 
 import (
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // VerifyResponse validates a RADIUS reply packet against the original

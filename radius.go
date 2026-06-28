@@ -13,11 +13,11 @@
 package radius
 
 import (
-	"github.com/wxccs/radius/client"
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/protocol"
-	"github.com/wxccs/radius/server"
-	"github.com/wxccs/radius/types"
+	"github.com/wxccs/radius/v2/client"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/protocol"
+	"github.com/wxccs/radius/v2/server"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // Code identifies a RADIUS packet code (RFC 2865 §3, RFC 5176 §2.1).

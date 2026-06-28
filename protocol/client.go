@@ -40,9 +40,9 @@ import (
 	"errors"
 	"time"
 
-	radiuslog "github.com/wxccs/radius/log"
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/types"
+	radiuslog "github.com/wxccs/radius/v2/log"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/types"
 )
 
 // Transport is the interface satisfied by transport.UDPClient and

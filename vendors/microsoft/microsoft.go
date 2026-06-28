@@ -10,9 +10,9 @@
 package microsoft
 
 import (
-	"github.com/wxccs/radius/crypto"
-	"github.com/wxccs/radius/packet"
-	"github.com/wxccs/radius/vendors"
+	"github.com/wxccs/radius/v2/crypto"
+	"github.com/wxccs/radius/v2/packet"
+	"github.com/wxccs/radius/v2/vendors"
 )
 
 // VendorID is Microsoft's SMI Network Management Private Enterprise
