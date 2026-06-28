@@ -154,11 +154,25 @@ func VerifyResponse(raw []byte, requestAuth [16]byte, secret []byte) error
 3. Verify Response Authenticator:
    `MD5(Code + ID + Length + RequestAuth + Attributes + Secret)`.
 4. If the reply contains a Message-Authenticator attribute, verify it
-   (HMAC-MD5 over the packet with the attribute's Value field zeroed).
+   via `packet.VerifyMessageAuthenticator(raw, requestAuth, secret)`:
+   HMAC-MD5 over `(Code, ID, Length, RequestAuth, Attributes)` with the
+   attribute's Value field zeroed (RFC 3579 §3.2). The Request
+   Authenticator is the same value used in step 3 — the raw reply's
+   Authenticator field holds the Response Authenticator, which is NOT
+   the HMAC input.
 
 A mismatch on (3) or (4) returns `ErrAuthenticatorMismatch` /
 `ErrMessageAuthenticatorMismatch` (already defined in `errors/`).
 The packet is silently discarded per RFC 2865 §3.
+
+> **v2.0.0 change**: `VerifyMessageAuthenticator` now requires the
+> Request Authenticator explicitly. Earlier versions zeroed the
+> Authenticator field for reply packets, which violated RFC 3579 §3.2
+> and broke interop with compliant servers (e.g. FreeRADIUS). For
+> request packets (Access-Request, Accounting-Request, CoA-Request,
+> Disconnect-Request) the raw Authenticator field already holds the
+> Request Authenticator and is preserved; the `requestAuth` argument
+> is ignored.
 
 ## 9. State Machines
 

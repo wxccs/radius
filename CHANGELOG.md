@@ -8,6 +8,62 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 No unreleased changes.
 
+## [v2.0.0] — 2026-06-29
+
+### Changed (breaking)
+
+- `packet.VerifyMessageAuthenticator` now takes the Request Authenticator
+  of the corresponding request as a second argument:
+  `VerifyMessageAuthenticator(rawPacket, requestAuth, secret)`. Reply
+  packets (Access-Accept/Reject/Challenge, Accounting-Response, CoA/DM
+  ACK/NAK) substitute `requestAuth` for the Response Authenticator in
+  the HMAC input. Callers that passed only `(raw, secret)` must update.
+- `packet.Packet.Marshal` now signs the Message-Authenticator over the
+  Request Authenticator for **all** packet types, per RFC 3579 §3.2.
+  Previously only Access-Request did so; reply packets signed over a
+  zero Authenticator field, and Accounting-Request/CoA-Request/
+  Disconnect-Request signed over a zero Authenticator field while
+  computing the Request Authenticator afterwards over the filled MA
+  Value. The wire format of the latter three request types has changed:
+  the Request Authenticator is now computed over attributes with the MA
+  Value zeroed, and the MA is computed over the resulting Request
+  Authenticator.
+- `packet.Packet.Unmarshal` now verifies the Request Authenticator of
+  Accounting-Request/CoA-Request/Disconnect-Request with the MA Value
+  zeroed in a copy of the attributes, mirroring Marshal. New unexported
+  helper `zeroMessageAuthenticatorValueInPlace` scans for the Type 80 /
+  Length 18 attribute and zeroes its 16-byte Value field.
+
+### Fixed
+
+- **RADIUS/EAP interoperability with compliant servers (RFC 3579 §3.2).**
+  The previous Message-Authenticator signing/verification for reply
+  packets zeroed the Authenticator field, so the library could not
+  verify replies from servers that follow RFC 3579 §3.2 (e.g. FreeRADIUS
+  3.2 default behavior). Symptoms: `message-authenticator verification
+  failed`, retransmission exhaustion, and authentication timeout. The
+  round-trip tests passed because Marshal and Verify shared the same
+  incorrect input ("self-signed/self-verified" blind spot).
+- **Message-Authenticator for Accounting-Request/CoA-Request/
+  Disconnect-Request** is now signed and verified over the Request
+  Authenticator, matching RFC 5176 §3.4. The historic zero-field signing
+  was interoperable only with this library.
+
+### Migration
+
+- Update all `packet.VerifyMessageAuthenticator(raw, secret)` call sites
+  to `packet.VerifyMessageAuthenticator(raw, requestAuth, secret)`. For
+  reply verification the Request Authenticator is the same value already
+  passed to `packet.VerifyResponseAuthenticator` and `protocol.VerifyResponse`.
+  For request-packet verification the `requestAuth` argument is ignored;
+  passing a zero value is fine.
+- Upgrade both ends of a RADIUS conversation together. The wire format
+  of Accounting-Request, CoA-Request, and Disconnect-Request has changed
+  (Request Authenticator now computed over MA-Value-zeroed attributes;
+  MA now computed over the Request Authenticator). Older library
+  versions emit packets the new version rejects and vice versa. The new
+  behavior matches FreeRADIUS and other RFC-compliant peers.
+
 ## [v1.1.0] — 2026-06-25
 
 ### Added
