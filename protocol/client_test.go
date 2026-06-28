@@ -176,9 +176,9 @@ func TestClient_Authenticate_EAP_AddsMessageAuthenticator(t *testing.T) {
 		require.NoError(t, p.Unmarshal(raw, secret))
 		_, ok := p.GetOne(types.AttrMessageAuthenticator)
 		require.True(t, ok, "EAP Access-Request must carry Message-Authenticator")
-		require.NoError(t, packet.VerifyMessageAuthenticator(raw, secret))
-
 		reqAuth := extractRequestAuth(raw)
+		require.NoError(t, packet.VerifyMessageAuthenticator(raw, reqAuth, secret))
+
 		return buildReply(t, raw, types.AccessAccept, reqAuth, secret, []packet.Attribute{
 			packet.NewOctets(types.AttrMessageAuthenticator, make([]byte, 16)),
 		}), nil
@@ -332,9 +332,9 @@ func TestClient_SendCoA(t *testing.T) {
 		require.NoError(t, p.Unmarshal(raw, secret))
 		_, ok := p.GetOne(types.AttrMessageAuthenticator)
 		require.True(t, ok, "CoA-Request must carry Message-Authenticator (RFC 5176 §3.4)")
-		require.NoError(t, packet.VerifyMessageAuthenticator(raw, secret))
-
 		reqAuth := extractRequestAuth(raw)
+		require.NoError(t, packet.VerifyMessageAuthenticator(raw, reqAuth, secret))
+
 		return buildReply(t, raw, types.CoAACK, reqAuth, secret, nil), nil
 	}
 	c := NewClient(tr, secret, WithRetransmitPolicy(RetransmitPolicy{MaxAttempts: 1}))

@@ -55,7 +55,7 @@ func VerifyResponse(raw []byte, expectedIdentifier byte, requestAuth [16]byte, s
 		return nil, err
 	}
 	if hasMessageAuthenticator(pkt) {
-		if err := packet.VerifyMessageAuthenticator(raw, secret); err != nil {
+		if err := packet.VerifyMessageAuthenticator(raw, requestAuth, secret); err != nil {
 			return nil, err
 		}
 	}

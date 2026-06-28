@@ -23,6 +23,8 @@
 package packet
 
 import (
+	"crypto/hmac"
+	"crypto/md5"
 	"encoding/binary"
 	"encoding/hex"
 	"net"
@@ -485,7 +487,7 @@ func TestPacketMarshal_MessageAuthenticator(t *testing.T) {
 	require.NoError(t, err)
 
 	// Message-Authenticator must validate against the marshaled packet.
-	require.NoError(t, VerifyMessageAuthenticator(raw, []byte(rfcSecret)))
+	require.NoError(t, VerifyMessageAuthenticator(raw, ra, []byte(rfcSecret)))
 
 	// Unmarshal round-trip preserves the attribute.
 	p := &Packet{}
@@ -496,16 +498,17 @@ func TestPacketMarshal_MessageAuthenticator(t *testing.T) {
 
 func TestVerifyMessageAuthenticator_Missing(t *testing.T) {
 	// An Access-Accept without Message-Authenticator attribute.
+	ra := mustAuth16FromHex(t, rfcReqAuthHex)
 	pkt := &Packet{
 		Code:          types.AccessAccept,
 		Identifier:    1,
-		Authenticator: mustAuth16FromHex(t, rfcReqAuthHex),
+		Authenticator: ra,
 		Attributes:    []Attribute{NewInteger(types.AttrServiceType, 1)},
 	}
 	raw, err := pkt.Marshal([]byte(rfcSecret))
 	require.NoError(t, err)
 
-	err = VerifyMessageAuthenticator(raw, []byte(rfcSecret))
+	err = VerifyMessageAuthenticator(raw, ra, []byte(rfcSecret))
 	assert.ErrorIs(t, err, radiuserrors.ErrMessageAuthenticatorMissing)
 }
 
@@ -526,7 +529,7 @@ func TestVerifyMessageAuthenticator_Tampered(t *testing.T) {
 	// Flip a bit in the User-Name attribute (offset 20+2 = 22).
 	tampered := append([]byte(nil), raw...)
 	tampered[22] ^= 0xff
-	err = VerifyMessageAuthenticator(tampered, []byte(rfcSecret))
+	err = VerifyMessageAuthenticator(tampered, ra, []byte(rfcSecret))
 	assert.ErrorIs(t, err, radiuserrors.ErrMessageAuthenticatorMismatch)
 }
 
@@ -544,11 +547,10 @@ func TestPacketMarshal_MultipleMessageAuthenticator(t *testing.T) {
 }
 
 // TestPacketMarshal_MessageAuthenticator_Reply verifies that a reply packet
-// (Access-Accept) carrying Message-Authenticator verifies correctly. The
-// Marshal code computes Message-Authenticator with the Authenticator field
-// zeroed (the Response Authenticator has not yet been written); Verify
-// must mirror this by zeroing the Authenticator field for non-Access-Request
-// packets before recomputing the HMAC.
+// (Access-Accept) carrying Message-Authenticator verifies correctly when
+// the correct Request Authenticator is supplied. RFC 3579 §3.2 requires
+// the reply Message-Authenticator HMAC to cover the Request Authenticator
+// of the corresponding request, not a zeroed Authenticator field.
 func TestPacketMarshal_MessageAuthenticator_Reply(t *testing.T) {
 	ra := mustAuth16FromHex(t, rfcReqAuthHex)
 	pkt := &Packet{
@@ -563,13 +565,21 @@ func TestPacketMarshal_MessageAuthenticator_Reply(t *testing.T) {
 	raw, err := pkt.Marshal([]byte(rfcSecret))
 	require.NoError(t, err)
 
-	require.NoError(t, VerifyMessageAuthenticator(raw, []byte(rfcSecret)))
+	require.NoError(t, VerifyMessageAuthenticator(raw, ra, []byte(rfcSecret)))
 	require.NoError(t, VerifyResponseAuthenticator(raw, ra, []byte(rfcSecret)))
 
 	// Tampering with the reply body must invalidate Message-Authenticator.
 	tampered := append([]byte(nil), raw...)
 	tampered[22] ^= 0xff
-	assert.ErrorIs(t, VerifyMessageAuthenticator(tampered, []byte(rfcSecret)),
+	assert.ErrorIs(t, VerifyMessageAuthenticator(tampered, ra, []byte(rfcSecret)),
+		radiuserrors.ErrMessageAuthenticatorMismatch)
+
+	// A wrong Request Authenticator must also fail: the MA was computed over
+	// the correct Request Authenticator at signing time, so verification with
+	// any other value must reject the reply.
+	wrongAuth := ra
+	wrongAuth[0] ^= 0xff
+	assert.ErrorIs(t, VerifyMessageAuthenticator(raw, wrongAuth, []byte(rfcSecret)),
 		radiuserrors.ErrMessageAuthenticatorMismatch)
 }
 
@@ -637,15 +647,130 @@ func TestVerifyResponseAuthenticator_Errors(t *testing.T) {
 
 func TestVerifyMessageAuthenticator_Errors(t *testing.T) {
 	t.Run("short_buffer", func(t *testing.T) {
-		assert.ErrorIs(t, VerifyMessageAuthenticator([]byte{1, 2, 3}, []byte("s")), radiuserrors.ErrShortBuffer)
+		assert.ErrorIs(t, VerifyMessageAuthenticator([]byte{1, 2, 3}, [16]byte{}, []byte("s")), radiuserrors.ErrShortBuffer)
 	})
 	t.Run("length_exceeds_buffer", func(t *testing.T) {
 		raw := make([]byte, 20)
 		raw[0] = byte(types.AccessAccept)
 		raw[2] = 0
 		raw[3] = 50
-		assert.ErrorIs(t, VerifyMessageAuthenticator(raw, []byte("s")), radiuserrors.ErrShortBuffer)
+		assert.ErrorIs(t, VerifyMessageAuthenticator(raw, [16]byte{}, []byte("s")), radiuserrors.ErrShortBuffer)
 	})
+}
+
+// TestPacketMarshal_MessageAuthenticator_Reply_IndependentHMAC recomputes the
+// reply Message-Authenticator with a standalone HMAC-MD5 calculation over
+// (Code, ID, Length, Request Authenticator, Attributes) with the MA Value
+// zeroed. This guards against "self-signed/self-verified" blind spots where
+// Marshal and Verify share the same incorrect input — the original bug
+// (Marshal zeroed the Authenticator field for replies; Verify mirrored that)
+// was invisible to round-trip tests because both sides agreed on the wrong
+// value.
+func TestPacketMarshal_MessageAuthenticator_Reply_IndependentHMAC(t *testing.T) {
+	secret := []byte("reply-hmac-secret")
+	reqAuth := mustAuth16FromHex(t, "0f403f9473978057bd83d5cb98f4227a")
+
+	pkt := &Packet{
+		Code:          types.AccessAccept,
+		Identifier:    9,
+		Authenticator: reqAuth,
+		Attributes: []Attribute{
+			NewString(types.AttrReplyMessage, "ok"),
+			NewInteger(types.AttrSessionTimeout, 3600),
+			NewOctets(types.AttrMessageAuthenticator, make([]byte, 16)),
+		},
+	}
+	raw, err := pkt.Marshal(secret)
+	require.NoError(t, err)
+
+	// Locate the Message-Authenticator attribute in the raw packet.
+	maOffset := -1
+	for i := 20; i < len(raw); {
+		require.GreaterOrEqual(t, int(raw[i+1]), 2)
+		if raw[i] == types.AttrMessageAuthenticator {
+			maOffset = i
+			break
+		}
+		i += int(raw[i+1])
+	}
+	require.GreaterOrEqual(t, maOffset, 0, "Message-Authenticator must be present")
+
+	// Build the HMAC input independently: copy raw, zero the MA Value, and
+	// set the Authenticator field to reqAuth. The raw Authenticator field
+	// holds the Response Authenticator, which is NOT the HMAC input per
+	// RFC 3579 §3.2.
+	input := append([]byte(nil), raw...)
+	for i := maOffset + 2; i < maOffset+18; i++ {
+		input[i] = 0
+	}
+	copy(input[4:20], reqAuth[:])
+
+	mac := hmac.New(md5.New, secret)
+	mac.Write(input)
+	wantMA := mac.Sum(nil)
+
+	gotMA := raw[maOffset+2 : maOffset+18]
+	assert.Equal(t, wantMA, []byte(gotMA),
+		"reply MA must be HMAC-MD5 over the Request Authenticator (RFC 3579 §3.2)")
+
+	// The library must verify this packet with the correct reqAuth.
+	require.NoError(t, VerifyMessageAuthenticator(raw, reqAuth, secret))
+}
+
+// TestVerifyMessageAuthenticator_ThirdPartyReplySignature constructs a reply
+// signed exactly as a compliant RADIUS server (e.g. FreeRADIUS) would:
+// Message-Authenticator is computed over the Request Authenticator per
+// RFC 3579 §3.2, then the Response Authenticator is written. The library
+// must verify such a reply. This reproduces the interop failure reported
+// against FreeRADIUS 3.2 where Verify zeroed the Authenticator field for
+// non-Access-Request packets and rejected every compliant server's reply.
+func TestVerifyMessageAuthenticator_ThirdPartyReplySignature(t *testing.T) {
+	secret := []byte("interop-secret")
+	reqAuth := mustAuth16FromHex(t, "0f403f9473978057bd83d5cb98f4227a")
+
+	// Build the reply body: Service-Type + zeroed Message-Authenticator.
+	body := []byte{
+		byte(types.AttrServiceType), 6, 0, 0, 0, 2, // Service-Type = 2 (Framed-User)
+	}
+	maOffsetInBody := len(body)
+	body = append(body, types.AttrMessageAuthenticator, 18)
+	body = append(body, make([]byte, 16)...)
+
+	length := 20 + len(body)
+	raw := make([]byte, length)
+	raw[0] = byte(types.AccessAccept)
+	raw[1] = 9
+	binary.BigEndian.PutUint16(raw[2:4], uint16(length))
+	// Authenticator field: set to reqAuth for MA computation (RFC 3579 §3.2).
+	copy(raw[4:20], reqAuth[:])
+	copy(raw[20:], body)
+
+	// Compute MA: HMAC-MD5 over the whole packet with MA Value zeroed and
+	// Authenticator = reqAuth. MA Value is already zero in body.
+	mac := hmac.New(md5.New, secret)
+	mac.Write(raw)
+	ma := mac.Sum(nil)
+	copy(raw[20+maOffsetInBody+2:], ma)
+
+	// Compute Response Authenticator: MD5(Code+ID+Length+reqAuth+Attributes+secret).
+	// This overwrites the Authenticator field (which held reqAuth for MA calc).
+	h := md5.New()
+	h.Write(raw[0:4])
+	h.Write(reqAuth[:])
+	h.Write(raw[20:])
+	h.Write(secret)
+	respAuth := h.Sum(nil)
+	copy(raw[4:20], respAuth)
+
+	// Library verification must succeed with the correct reqAuth.
+	require.NoError(t, VerifyMessageAuthenticator(raw, reqAuth, secret),
+		"library must verify a third-party reply signed with reqAuth (RFC 3579 §3.2)")
+
+	// And must fail with a wrong reqAuth.
+	wrongAuth := reqAuth
+	wrongAuth[0] ^= 0xff
+	assert.ErrorIs(t, VerifyMessageAuthenticator(raw, wrongAuth, secret),
+		radiuserrors.ErrMessageAuthenticatorMismatch)
 }
 
 func TestNewIPv6Addr_Invalid(t *testing.T) {

@@ -94,28 +94,36 @@ func (p *Packet) Marshal(secret []byte) ([]byte, error) {
 		}
 	}
 
-	// For Access-Request the Request Authenticator is a caller-supplied
-	// random 16-byte value (RFC 2865 §3); write it directly. CoA-Request
-	// and Disconnect-Request use the Accounting-Request authenticator
-	// formula (RFC 5176 §2.3), so they are computed alongside
-	// Accounting-Request below.
-	if p.Code == types.AccessRequest {
+	// Write the Request Authenticator into the Authenticator field before
+	// computing Message-Authenticator (RFC 3579 §3.2). For Access-Request
+	// this is the caller-supplied random value (RFC 2865 §3); for reply
+	// packets it is the Request Authenticator of the corresponding request,
+	// carried in p.Authenticator by the server handler. Accounting-Request,
+	// CoA-Request and Disconnect-Request leave the field zero here: their
+	// Request Authenticator is derived from the attributes (including the MA
+	// Value) and is computed after the MA below, so the MA for those codes
+	// is signed over a zero Authenticator field (historic behavior).
+	switch p.Code {
+	case types.AccessRequest,
+		types.AccessAccept, types.AccessReject, types.AccessChallenge,
+		types.AccountingResponse,
+		types.CoAACK, types.CoANAK, types.DisconnectACK, types.DisconnectNAK:
 		copy(out[4:20], p.Authenticator[:])
 	}
 
-	// Compute and write Message-Authenticator before the final Authenticator.
-	// RFC 2869 §5.14: for reply packets the Message-Authenticator is
-	// calculated before the Response Authenticator, so the Authenticator
-	// field is zero at this point for reply packets.
+	// Compute and write Message-Authenticator before the final Authenticator
+	// is calculated (RFC 3579 §3.2). The MA Value field was zeroed above.
 	if msgAuthOffset >= 0 {
 		mac := crypto.ComputeMessageAuthenticator(out, secret)
 		valueStart := 20 + msgAuthOffset + 2
 		copy(out[valueStart:valueStart+16], mac[:])
 	}
 
-	// Compute the final Authenticator for reply, accounting-request, and
-	// CoA/DM-request packets. Access-Request already wrote the caller's
-	// random authenticator above.
+	// Compute the final Authenticator. For reply packets this is the Response
+	// Authenticator, overwriting the Request Authenticator used as HMAC
+	// input above. For Accounting-Request, CoA-Request and Disconnect-Request
+	// this is the Request Authenticator (RFC 2866 §3, RFC 5176 §2.3),
+	// computed after the MA Value is in place.
 	switch p.Code {
 	case types.AccountingRequest, types.CoARequest, types.DisconnectRequest:
 		auth := crypto.ComputeAccountingRequestAuthenticator(byte(p.Code), p.Identifier, uint16(length), out[20:], secret)
@@ -257,17 +265,25 @@ func VerifyResponseAuthenticator(rawPacket []byte, requestAuth [16]byte, secret 
 	return nil
 }
 
-// VerifyMessageAuthenticator checks the Message-Authenticator attribute (RFC 2869
-// §5.14) carried in rawPacket. The attribute's Value field is zeroed in a copy
-// of the packet before recomputing the HMAC. For non-Access-Request packets the
-// Authenticator field (bytes 4..20) is also zeroed, because Marshal computes
-// the Message-Authenticator HMAC before the Response/Accounting-Request
-// Authenticator is written; the wire packet's Authenticator field therefore
-// does not match what was used at signing time.
+// VerifyMessageAuthenticator checks the Message-Authenticator attribute
+// (RFC 3579 §3.2) carried in rawPacket.
+//
+// requestAuth is the Request Authenticator of the corresponding request:
+//   - For reply packets (Access-Accept/Reject/Challenge, Accounting-Response,
+//     CoA/DM ACK/NAK) it is the Request Authenticator of the request this
+//     reply corresponds to. The raw packet's Authenticator field holds the
+//     Response Authenticator, which is NOT the value used at signing time;
+//     requestAuth replaces it in the HMAC input.
+//   - For request packets (Access-Request, Accounting-Request, CoA-Request,
+//     Disconnect-Request) the raw packet's Authenticator field already
+//     holds the Request Authenticator; requestAuth is not used.
+//
+// The Message-Authenticator Value field is zeroed in a copy of the packet
+// before recomputing the HMAC (RFC 2104).
 //
 // Returns ErrMessageAuthenticatorMissing if the attribute is absent, or
 // ErrMessageAuthenticatorMismatch on mismatch.
-func VerifyMessageAuthenticator(rawPacket []byte, secret []byte) error {
+func VerifyMessageAuthenticator(rawPacket []byte, requestAuth [16]byte, secret []byte) error {
 	if len(rawPacket) < types.PacketMinLength {
 		return radiuserrors.ErrShortBuffer
 	}
@@ -304,14 +320,26 @@ func VerifyMessageAuthenticator(rawPacket []byte, secret []byte) error {
 	for i := offset + 2; i < offset+18; i++ {
 		copyBuf[i] = 0
 	}
-	// For non-Access-Request packets Marshal computed the HMAC with the
-	// Authenticator field still zero (the Response/Accounting-Request
-	// Authenticator is written afterwards). Zero it here so recomputation
-	// matches the signing-time input.
-	if code != types.AccessRequest {
+	// RFC 3579 §3.2: the MA HMAC covers the Request Authenticator.
+	//   - Reply packets: the raw Authenticator field holds the Response
+	//     Authenticator; replace it with requestAuth (the Request
+	//     Authenticator of the corresponding request).
+	//   - Access-Request: the raw Authenticator field already holds the
+	//     Request Authenticator; preserve it.
+	//   - Accounting-Request, CoA-Request, Disconnect-Request: Marshal
+	//     computes the MA with a zero Authenticator field (the Request
+	//     Authenticator is written afterwards); zero it here to match.
+	//     Full RFC 3579 §3.2 compliance for these request codes (signing
+	//     the MA over the Request Authenticator) is not yet implemented.
+	switch code {
+	case types.AccessRequest:
+		// preserve raw Authenticator field
+	case types.AccountingRequest, types.CoARequest, types.DisconnectRequest:
 		for i := 4; i < 20; i++ {
 			copyBuf[i] = 0
 		}
+	default:
+		copy(copyBuf[4:20], requestAuth[:])
 	}
 	var received [16]byte
 	copy(received[:], rawPacket[offset+2:offset+18])
