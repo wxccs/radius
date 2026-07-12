@@ -2,11 +2,20 @@
 // Microsoft (SMI Network Management Private Enterprise Code 311).
 //
 // Microsoft VSAs use the RFC 2865 §5.26 layout
-// (Vendor-Id | Vendor-Type | Vendor-Length | Value) and carry the
-// MS-CHAPv2 / MPPE / Quarantine attributes defined by RFC 2548. This
-// package exposes typed constructors for the most common attributes
-// and wires the MPPE key-derivation helpers from the crypto package
-// into the wire-level packet format.
+// (Vendor-Id | Vendor-Type | Vendor-Length | Value). The package covers
+// three attribute sources, split across two files:
+//
+//   - microsoft.go: the MS-CHAPv2 / MPPE attributes defined by RFC 2548
+//     (Vendor-Type 1-27), with typed constructors and the MPPE
+//     key-derivation helpers from the crypto package wired into the
+//     wire-level packet format.
+//   - rnas.go: the NAP / NPAS attributes defined by the Microsoft Open
+//     Specifications [MS-RNAP] (Vendor-Type 0x22-0x3F) and [MS-RNAS]
+//     (adds 0x41), plus the SSTP vendor-specific value for the standard
+//     Tunnel-Type (Type 64) attribute.
+//
+// All Microsoft VSAs share Vendor-Id 311 and decode through the
+// package-level Decode helper.
 package microsoft
 
 import (
