@@ -8,6 +8,74 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 No unreleased changes.
 
+## [v2.1.0] — 2026-07-13
+
+### Added
+
+- `vendors/huawei` - new sub-package for Huawei RADIUS extension
+  attributes (Vendor-Id 2011), implementing all 47 Huawei-defined VSA
+  sub-types from the Huawei Sx700 V600R025C00 documentation: the
+  rate/burst family (1-6), accounting/management attributes (18, 26,
+  28-29, 31, 33, 59-62, 82, 138, 141-142, 146, 153, 156, 158, 160),
+  IPv6 accounting (163-164, 166-171), ACL/redirect/policy (173, 178,
+  180, 188, 202-203, 238-240, 244, 251, 254-255), and
+  HW-Framed-IPv6-Address (253, 16-byte IPv6). Includes typed
+  constructors for integer, string, and IPv6 value types.
+- `vendors/juniper` - added constructors for Juniper-Interactive-Command
+  (8), Juniper-Configuration-Change (9), Juniper-User-Permissions (10),
+  Juniper-Authentication-Type (11), Juniper-Session-Port (12),
+  Juniper-Allow-Configuration-Regexps (13), and
+  Juniper-Deny-Configuration-Regexps (14), per the Junos OS user-access
+  RADIUS authentication documentation.
+- `vendors/cisco` - added constructors for Cisco-NAS-Port (sub-type 2),
+  the store-and-forward Fax/Email family (sub-types 3-21), and the
+  H.323/VoIP call-accounting family (sub-types 23-31, 33), per the
+  Cisco IOS 12.2 RADIUS VSA appendix.
+- `vendors/h3c` - added 20 H3C VSA sub-types per the H3C RADIUS
+  extension attributes table: Remanent_Volume (15), Command (20),
+  Control_Identifier (24), Result_Code (25), Connect_ID (26),
+  Exec_Privilege (29), NAS_Startup_Timestamp (59), Ip_Host_Addr (60),
+  User_Notify (61), User_HeartBeat (62), Security_Level (141), the
+  realtime-accounting interval family (201-206), Backup-NAS-IP (207,
+  IPv4), and Product_ID (255).
+
+### Changed (breaking)
+
+- **`vendors/h3c` Vendor-Id corrected from 2011 to 25506.** H3C
+  Technologies Co., Limited registers its own SMI code 25506; code
+  2011 belongs to Huawei (see the new `vendors/huawei` sub-package).
+  `h3c.Decode` now matches Vendor-Id 25506, so VSAs encoded with the
+  old 2011 value no longer decode through the `h3c` package.
+- **`vendors/h3c` sub-type numbers corrected to match the H3C
+  documentation.** The previous values were wrong: sub-types 3-6 were
+  misnumbered (3 is Input-Basic-Rate, not Output-Peak-Rate; 5/6 are
+  Output-Average/Basic-Rate, not User-Group/Access-Level). `User-Group`
+  moved from sub-type 5 to 140, and the non-existent `Access-Level`
+  constant (6) was removed. `NewUserGroup` now emits sub-type 140. The
+  rate family is now six sub-types (1-6) rather than four.
+- **`vendors/juniper` renamed `VendorTypeLocalUserGroup` to
+  `VendorTypeLocalUserName` and `NewLocalUserGroup` to
+  `NewLocalUserName`.** The official Juniper attribute is
+  Juniper-Local-User-Name (a user template name, not a group).
+
+### Fixed
+
+- `vendors/h3c` sub-type numbers now match the H3C "RADIUS扩展属性"
+  documentation table. The previous values were based on the Huawei/old
+  3Com rate family and did not match H3C's actual attribute numbering.
+- `vendors/juniper` sub-type 1 naming corrected: the attribute is
+  Juniper-Local-User-Name (user template), not Local-User-Group, per
+  the Junos OS documentation.
+
+### Documentation
+
+- README vendor table updated: H3C SMI code 2011 -> 25506; added the
+  Huawei (2011) row.
+- `docs/design/vendors.md` updated: corrected H3C SMI code, added the
+  `huawei` row, removed references to non-existent
+  `juniper.NewRouterRole` and `cisco.NewURLRedirect`, and rewrote the
+  Vendor-Id 2011 note to reflect that Huawei now owns it exclusively.
+
 ## [v2.0.0] — 2026-06-29
 
 ### Changed (breaking)

@@ -11,9 +11,9 @@ for common vendor sub-attributes.
   `vendors` package, so every vendor sub-package reuses the same
   encoding logic.
 - Provide typed constructors for the most common vendor sub-attributes
-  (Cisco AV-Pairs, H3C user groups, Juniper local-user-group, Microsoft
-  MS-CHAPv2 / MPPE) so applications do not have to remember vendor
-  sub-type numbers.
+  (Cisco AV-Pairs, H3C user groups, Juniper local-user-name and user
+  permissions, Microsoft MS-CHAPv2 / MPPE) so applications do not have to
+  remember vendor sub-type numbers.
 - Keep each vendor in its own sub-package so callers who only need
   one vendor do not pull in the others' dependencies.
 
@@ -41,12 +41,22 @@ Vendors currently shipped:
 
 | Sub-package | Vendor     | SMI Code | Highlights                                    |
 |-------------|------------|----------|-----------------------------------------------|
-| `cisco`     | Cisco      | 9        | `NewAVPair`, `NewURLRedirect`                 |
-| `h3c`       | H3C        | 2011     | `NewUserGroup`, `NewInputAverageRate`         |
-| `juniper`   | Juniper    | 2636     | `NewLocalUserGroup`, `NewRouterRole`          |
+| `cisco`     | Cisco      | 9        | `NewAVPair`, `NewNASPort`, `NewH323DisconnectCause` |
+| `h3c`       | H3C        | 25506    | `NewInputAverageRate`, `NewUserGroup`, `NewBackupNASIP` |
+| `huawei`    | Huawei     | 2011     | `NewInputPeakInformationRate`, `NewAVPair`, `NewFramedIPv6Address` |
+| `juniper`   | Juniper    | 2636     | `NewLocalUserName`, `NewUserPermissions`, `NewSessionPort` |
 | `alcatel`   | Alcatel    | 800      | `NewVLANID`, `NewPrimaryDNS`                  |
 | `redback`   | Redback    | 2352     | `NewContextName`, `NewSessionTimeoutAction`    |
 | `microsoft` | Microsoft  | 311      | `NewMSCHAP2Response`, `NewMSCHAP2SuccessFromAuth`, `NewMPPEKey` |
+
+> **Vendor-Id 2011 now belongs to `huawei` alone.** This code
+> originated with 3Com and was carried by the early H3C/3Com lineage;
+> Huawei retains it to this day. H3C Technologies Co., Limited has
+> since registered its own SMI code (25506), used by the `h3c`
+> sub-package, so the two vendors are no longer related on the wire. A
+> 2011 VSA decodes only through `huawei.Decode`; a 25506 VSA only
+> through `h3c.Decode`.
+
 
 ## 4. Wire Format
 

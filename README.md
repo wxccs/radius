@@ -163,12 +163,13 @@ Code:
 
 | Sub-package | Vendor | Code  |
 |-------------|--------|-------|
-| `vendors/cisco`     | Cisco     | 9    |
-| `vendors/h3c`       | H3C       | 2011 |
-| `vendors/juniper`   | Juniper   | 2636 |
-| `vendors/alcatel`   | Alcatel   | 800  |
-| `vendors/redback`   | Redback   | 2352 |
-| `vendors/microsoft` | Microsoft | 311  |
+| `vendors/cisco`     | Cisco     | 9     |
+| `vendors/h3c`       | H3C       | 25506 |
+| `vendors/huawei`    | Huawei    | 2011  |
+| `vendors/juniper`   | Juniper   | 2636  |
+| `vendors/alcatel`   | Alcatel   | 800   |
+| `vendors/redback`   | Redback   | 2352  |
+| `vendors/microsoft` | Microsoft | 311   |
 
 ```go
 // Microsoft MS-CHAP2-Success VSA, computed from MS-CHAPv2 inputs.
