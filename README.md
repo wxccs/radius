@@ -177,6 +177,19 @@ attr := microsoft.NewMSCHAP2SuccessFromAuth(
     authChallenge, peerChallenge, ntResponse, "alice", "password")
 ```
 
+The `vendors/microsoft` package also covers the NAP/NPAS VSAs defined by
+the Microsoft Open Specifications `[MS-RNAP]` (Vendor-Type 0x22-0x3F) and
+`[MS-RNAS]` (adds 0x41), plus the SSTP vendor-specific value for the
+standard Tunnel-Type attribute:
+
+```go
+// MS-RNAS: assign the user's IPv4 address and an Azure P2S policy id.
+attr := microsoft.NewUserIPv4Address(net.IPv4(10, 0, 0, 1))
+attr := microsoft.NewAzurePolicyID("azure-p2s-policy-42")
+// MS-RNAS §2.2.2.1: standard Tunnel-Type (Type 64) = 0x00013701 for SSTP.
+attr := microsoft.NewTunnelTypeSSTP()
+```
+
 Shared helpers `vendors.NewVSA`, `vendors.DecodeVSA`, and
 `vendors.MatchVSA` implement the RFC 2865 §5.26 wire format for vendors
 not covered by a dedicated sub-package.

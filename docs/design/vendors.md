@@ -47,7 +47,7 @@ Vendors currently shipped:
 | `juniper`   | Juniper    | 2636     | `NewLocalUserName`, `NewUserPermissions`, `NewSessionPort` |
 | `alcatel`   | Alcatel    | 800      | `NewVLANID`, `NewPrimaryDNS`                  |
 | `redback`   | Redback    | 2352     | `NewContextName`, `NewSessionTimeoutAction`    |
-| `microsoft` | Microsoft  | 311      | `NewMSCHAP2Response`, `NewMSCHAP2SuccessFromAuth`, `NewMPPEKey` |
+| `microsoft` | Microsoft  | 311      | `NewMSCHAP2SuccessFromAuth`, `NewMPPEKey`, `NewUserIPv4Address`, `NewAzurePolicyID`, `NewTunnelTypeSSTP` |
 
 > **Vendor-Id 2011 now belongs to `huawei` alone.** This code
 > originated with 3Com and was carried by the early H3C/3Com lineage;
@@ -142,6 +142,34 @@ crypto package into the wire-level VSA format:
   Does **not** perform RFC 2548 §3.3 RC4 encryption; that step is left
   for a future security-reviewed helper.
 
+### NAP / NPAS attributes (rnas.go)
+
+`rnas.go` adds the Vendor-Specific attributes defined by the Microsoft
+Open Specifications [MS-RNAP] (NAP, Vendor-Type 0x22-0x3F) and [MS-RNAS]
+(NPAS, adds 0x41), grouped by value format:
+
+- **String / ANSI** - `NewRASClientName` (null-terminated per spec),
+  `NewRASClientVersion`, `NewServiceClass`, `NewQuarantineUserClass`,
+  `NewMachineName`, `NewHCAPUserGroups`, `NewHCAPLocationGroupName`,
+  `NewHCAPUserName`, `NewAzurePolicyID`.
+- **32-bit integer / enum** - `NewQuarantineSessionTimeout`,
+  `NewIdentityType`, `NewQuarantineState`, `NewQuarantineGraceTime`,
+  `NewNetworkAccessServerType`, `NewAFWZone`, `NewAFWProtectionLevel`,
+  `NewNotQuarantineCapable`, `NewExtendedQuarantineState`,
+  `NewRDGDeviceRedirection` (bitmask). Enumerated values are exposed as
+  constants (`QuarantineState*`, `NASType*`, `AFWZone*`,
+  `ExtendedQuarantineState*`, `RDGRedir*`, ...).
+- **IP address** - `NewUserIPv4Address`, `NewUserIPv6Address`.
+- **GUID** - `NewRASCorrelationID` (curly-braced string form).
+- **Complex binary** - `NewQuarantineIPFilter`, `NewIPv6Filter` (raw
+  bytes; `Filter*` constants provided for assembly),
+  `NewUserSecurityIdentity` (binary SID), `NewIPv4RemediationServers`,
+  `NewIPv6RemediationServers` (reserved byte + IP list),
+  `NewQuarantineSoH` (raw SoH blob).
+- `NewTunnelTypeSSTP` - the MS-RNAS §2.2.2.1 vendor-specific value
+  `0x00013701` for the standard Tunnel-Type (Type 64) attribute; this
+  returns a plain RADIUS attribute, not a VSA.
+
 ## 8. Testing
 
 Each vendor sub-package has its own `_test.go` covering:
@@ -152,7 +180,11 @@ Each vendor sub-package has its own `_test.go` covering:
 - `VendorID` constant equals the expected SMI code.
 
 For Microsoft, an additional test exercises the RFC 3079 §3.5 sample
-vector end-to-end through `NewMSCHAP2SuccessFromAuth`.
+vector end-to-end through `NewMSCHAP2SuccessFromAuth`. The `rnas.go`
+tests pin every Vendor-Type constant, the enumerated values, and the
+wire layout of each typed constructor (big-endian byte order for the
+32-bit family, the reserved byte + address list for the
+Remediation-Servers family, and the `0x00013701` SSTP Tunnel-Type value).
 
 Coverage: `vendors` (root) 96.3 %, each sub-package 92-100 %.
 
@@ -164,3 +196,9 @@ Coverage: `vendors` (root) 96.3 %, each sub-package 92-100 %.
 - RFC 3079 §3.3, §3.4, §3.5 (MPPE key derivation)
 - IANA SMI Network Management Private Enterprise Codes:
   https://www.iana.org/assignments/enterprise-numbers
+- [MS-RNAP] Vendor-Specific RADIUS Attributes for Network Access
+  Protection (NAP) Data Structure -
+  https://learn.microsoft.com/openspecs/windows_protocols/ms-rnap/e391716b-22f7-4bf7-bb39-202a18598000
+- [MS-RNAS] Vendor-Specific RADIUS Attributes for Network Policy and
+  Access Server Data Structure -
+  https://learn.microsoft.com/openspecs/windows_protocols/ms-rnas/b37e720b-5837-4735-858e-d47824c51c8a

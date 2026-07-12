@@ -8,6 +8,26 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 No unreleased changes.
 
+## [v2.2.0] - 2026-07-13
+
+### Added
+
+- `vendors/microsoft` - added NAP/NPAS VSAs per the Microsoft Open
+  Specifications [MS-RNAP] (v19.0) and [MS-RNAS] (v7.0): 28 sub-types
+  across Vendor-Type 0x22-0x3F and 0x41, with typed constructors for
+  the string family (MS-RAS-Client-Name/Version, MS-Service-Class,
+  MS-Machine-Name, MS-Quarantine-User-Class, HCAP-*, MS-Azure-Policy-ID),
+  32-bit integer/enum family (MS-Quarantine-Session-Timeout/State/Grace-
+  Time, MS-Identity-Type, MS-Network-Access-Server-Type, MS-AFW-Zone,
+  MS-AFW-Protection-Level, Not-Quarantine-Capable, MS-Extended-Quarantine-
+  State, MS-RDG-Device-Redirection), IP-address family (MS-User-IPv4/
+  IPv6-Address), GUID (MS-RAS-Correlation-ID), and complex binary family
+  (MS-Quarantine-IPFilter, MS-IPv6-Filter, MS-User-Security-Identity,
+  MS-IPv4/IPv6-Remediation-Servers, MS-Quarantine-SoH), plus the MS-RNAS
+  §2.2.2.1 SSTP vendor-specific value for the standard Tunnel-Type
+  (Type 64) attribute (0x00013701). Enumerated values and the
+  RDG-Device-Redirection bitmask are exposed as constants.
+
 ## [v2.1.0] — 2026-07-13
 
 ### Added
