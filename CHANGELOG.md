@@ -8,6 +8,28 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 No unreleased changes.
 
+## [v2.3.0] - 2026-07-15
+
+### Added
+
+- `vendors/paloalto` - new sub-package for Palo Alto Networks RADIUS
+  Vendor-Specific attributes (Vendor-Id 25461), implementing the 10 VSAs
+  defined in the PAN-OS Administrator's Guide RADIUS VSA table: the
+  admin account management and authentication family (PaloAlto-Admin-Role
+  1, PaloAlto-Admin-Access-Domain 2, PaloAlto-Panorama-Admin-Role 3,
+  PaloAlto-Panorama-Admin-Access-Domain 4, PaloAlto-User-Group 5) and the
+  GlobalProtect endpoint-forwarded family (PaloAlto-User-Domain 6,
+  PaloAlto-Client-Source-IP 7, PaloAlto-Client-OS 8, PaloAlto-Client-
+  Hostname 9, PaloAlto-GlobalProtect-Client-Version 10). All sub-types
+  are string-valued; includes typed constructors plus the `New`/`Decode`
+  pair. Wire format is the standard RFC 2865 §5.26 layout emitted by
+  `vendors.NewVSA`.
+
+### Documentation
+
+- README vendor table and `docs/design/vendors.md` updated: added the
+  PaloAlto (25461) row.
+
 ## [v2.2.0] - 2026-07-13
 
 ### Added

@@ -48,6 +48,7 @@ Vendors currently shipped:
 | `alcatel`   | Alcatel    | 800      | `NewVLANID`, `NewPrimaryDNS`                  |
 | `redback`   | Redback    | 2352     | `NewContextName`, `NewSessionTimeoutAction`    |
 | `microsoft` | Microsoft  | 311      | `NewMSCHAP2SuccessFromAuth`, `NewMPPEKey`, `NewUserIPv4Address`, `NewAzurePolicyID`, `NewTunnelTypeSSTP` |
+| `paloalto`  | PaloAlto   | 25461    | `NewAdminRole`, `NewUserGroup`, `NewClientOS` |
 
 > **Vendor-Id 2011 now belongs to `huawei` alone.** This code
 > originated with 3Com and was carried by the early H3C/3Com lineage;
@@ -202,3 +203,6 @@ Coverage: `vendors` (root) 96.3 %, each sub-package 92-100 %.
 - [MS-RNAS] Vendor-Specific RADIUS Attributes for Network Policy and
   Access Server Data Structure -
   https://learn.microsoft.com/openspecs/windows_protocols/ms-rnas/b37e720b-5837-4735-858e-d47824c51c8a
+- Palo Alto Networks PAN-OS Administrator's Guide, "RADIUS" section
+  (Vendor-Id 25461 VSA table) -
+  https://docs.paloaltonetworks.com/content/dam/techdocs/en_US/pdf/ngfw/ngfw-administration.pdf

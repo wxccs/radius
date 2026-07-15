@@ -170,6 +170,7 @@ Code:
 | `vendors/alcatel`   | Alcatel   | 800   |
 | `vendors/redback`   | Redback   | 2352  |
 | `vendors/microsoft` | Microsoft | 311   |
+| `vendors/paloalto`  | PaloAlto  | 25461 |
 
 ```go
 // Microsoft MS-CHAP2-Success VSA, computed from MS-CHAPv2 inputs.
