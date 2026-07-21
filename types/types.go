@@ -27,7 +27,7 @@
 //   - RFC 2865: RADIUS (base) — Codes 1-3, 11-13, 255; attributes 1-39, 60-63
 //   - RFC 2866: RADIUS Accounting — Codes 4-5; attributes 40-51
 //   - RFC 2869: RADIUS Extensions — attributes 79-80
-//   - RFC 5176: Dynamic Authorization — Codes 43-48
+//   - RFC 5176: Dynamic Authorization — Codes 40-45
 package types
 
 // Code identifies the type of a RADIUS packet. It occupies one octet at the
@@ -53,9 +53,9 @@ const (
 	CoARequest        Code = 43
 	CoAACK            Code = 44
 	CoANAK            Code = 45
-	DisconnectRequest Code = 46
-	DisconnectACK     Code = 47
-	DisconnectNAK     Code = 48
+	DisconnectRequest Code = 40
+	DisconnectACK     Code = 41
+	DisconnectNAK     Code = 42
 )
 
 // IsAccess reports whether c is an authentication-family code

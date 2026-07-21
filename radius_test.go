@@ -124,7 +124,7 @@ func TestRoot_ConstantsAndAliases(t *testing.T) {
 	assert.Equal(t, radius.Code(2), radius.AccessAccept)
 	assert.Equal(t, radius.Code(5), radius.AccountingResponse)
 	assert.Equal(t, radius.Code(44), radius.CoAACK)
-	assert.Equal(t, radius.Code(48), radius.DisconnectNAK)
+	assert.Equal(t, radius.Code(42), radius.DisconnectNAK)
 
 	assert.Equal(t, byte(1), byte(radius.AttrUserName))
 	assert.Equal(t, byte(2), byte(radius.AttrUserPassword))

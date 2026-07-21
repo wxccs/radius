@@ -45,7 +45,7 @@ are not a substitute for the RFC text. Section numbers refer to the source RFC.
 | 13 | Status-Client (experimental) | — |
 | 255 | Reserved | — |
 
-CoA/DM codes (43–48) are defined in RFC 5176, not here.
+CoA/DM codes (40–45) are defined in RFC 5176, not here.
 
 ### Authenticators (Section 3)
 
@@ -259,8 +259,8 @@ Phase 6 — it affects RFC 2868, 2867, and some 2869 attributes.
 
 ## RFC 5176 — Dynamic Authorization (CoA/DM) (deferred to Phase 7)
 
-- UDP port **3799**. Codes 43–48 (see below). **MUST** include Message-Authenticator.
-- Codes: 43=CoA-Request, 44=CoA-ACK, 45=CoA-NAK, 46=Disconnect-Request, 47=Disconnect-ACK, 48=Disconnect-NAK.
+- UDP port **3799**. Codes 40–45 (see below). **MUST** include Message-Authenticator.
+- Codes: 40=Disconnect-Request, 41=Disconnect-ACK, 42=Disconnect-NAK, 43=CoA-Request, 44=CoA-ACK, 45=CoA-NAK.
 - Error-Cause (101): uint32 enum (e.g. 201 Invalid-Attribute, 401 Missing-Attribute, 501 Session-Context-Not-Found).
 - Request Authenticator: random 16 octets (like Access-Request).
 - Response Authenticator: MD5(Code+ID+Length+RequestAuth+Attributes+Secret).

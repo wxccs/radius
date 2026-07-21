@@ -8,6 +8,27 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 No unreleased changes.
 
+## [v2.3.1] - 2026-07-22
+
+### Fixed
+
+- `types`: corrected the RFC 5176 packet code values for the Disconnect
+  family - `DisconnectRequest` 46 -> 40, `DisconnectACK` 47 -> 41,
+  `DisconnectNAK` 48 -> 42. The previous values did not match RFC 5176
+  §2.1 and prevented interoperability with standard NAS devices; the CoA
+  family (43/44/45) was already correct and is unchanged.
+
+### Changed
+
+- **BREAKING**: although a bug fix, the on-wire Code byte for
+  Disconnect-Request/ACK/NAK packets changes (46/47/48 -> 40/41/42).
+  Rebuild against this version to pick up the RFC-correct values.
+
+### Documentation
+
+- `docs/rfc/NOTES.md`: updated the RFC 5176 CoA/DM code range and list
+  to 40-45 to match the corrected values.
+
 ## [v2.3.0] - 2026-07-15
 
 ### Added
