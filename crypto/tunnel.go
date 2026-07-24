@@ -30,177 +30,184 @@ import (
 	radiuserrors "github.com/wxccs/radius/v2/errors"
 )
 
-// RFC 2868 §3.3 Tunnel-Password encoding.
+// RFC 2868 §3.5 Tunnel-Password encryption.
 //
 // Wire layout of the Tunnel-Password attribute Value:
 //
-//   +------+--------+----------------------------------+
-//   | Tag  | Salt   | Password (encrypted, 16-aligned) |
-//   +------+--------+----------------------------------+
-//    1 byte  2 bytes   16..240 octets (after padding)
+//   +--------+----------------------------------+
+//   | Salt   | String (encrypted, 16-aligned)   |
+//   +--------+----------------------------------+
+//    2 bytes   16..240 octets of ciphertext
 //
-// The Tag field is present only when the high bit of Salt (0x80) is set.
-// The Salt is a random 2-byte value with the high bit acting as the
-// "tag present" flag; the remaining 15 bits MUST be random and unique
-// within the lifetime of a session to avoid keystream reuse.
+// The Salt is a 2-byte value whose most significant bit MUST be set (1); the
+// remaining 15 bits MUST be random and unique within a packet to avoid
+// keystream reuse. The optional Tag field that RFC 2868 §3.5 defines for the
+// attribute is handled separately by EncodeTunnelTag/DecodeTunnelTag at the
+// attribute layer; it is NOT encoded into the Salt.
 //
-// Encryption (RFC 2868 §3.3): the plaintext password is padded with NULs
-// to a 16-byte boundary, then XOR-encrypted with a keystream derived as:
+// The plaintext String (RFC 2868 §3.5) is:
 //
-//   b1 = MD5(secret + salt [+ tag] + RA)
-//   b2 = MD5(secret + b1)
-//   b3 = MD5(secret + b2)
-//   ...
+//	Data-Length (1) + Password + Padding
 //
-// The Request Authenticator (RA) is included in b1 only. Subsequent blocks
-// chain on the previous keystream block. This matches the User-Password
-// feedback design from RFC 2865 §5.2 with the Salt substituting for the
-// RA in the first block's seed.
+// where Data-Length is the length of the Password and Padding pads the
+// plaintext to a 16-byte boundary. The keystream is derived as:
 //
-// Note: RFC 2868 §3.3 actually specifies that b1 uses MD5(secret + salt + RA)
-// when no tag is present, and MD5(secret + salt + tag + RA) when a tag is
-// present. We follow that literal construction.
+//	b(1) = MD5(Secret + RequestAuth + Salt)
+//	b(i) = MD5(Secret + c(i-1))   for i > 1
+//	c(i) = p(i) XOR b(i)
+//
+// This is the same MD5-feedback construction used by User-Password (RFC
+// 2865 §5.2) and by the MS-MPPE-*-Key attributes (RFC 2548 §3.3); only the
+// seed of the first block differs (here Secret+RA+Salt). We follow FreeRADIUS
+// (src/protocols/radius/encode.c encode_tunnel_password), which fills the
+// padding with random data rather than NULs.
 
 const (
-	// tunnelPasswordMaxLen is the cleartext password length limit per RFC 2868
-	// §3.3: the encrypted value must fit within a 255-octet attribute, minus
-	// 3 (Type+Length) minus 2 (Salt) minus 1 (optional Tag) = 249 octets of
-	// ciphertext, which is 240 octets of plaintext after rounding down to a
-	// 16-byte boundary.
-	tunnelPasswordMaxLen = 240
+	// tunnelPasswordMaxLen is the cleartext password length limit per RFC
+	// 2868 §3.5. The attribute Value is at most 253 octets; subtracting the
+	// 2-byte Salt leaves 251 octets of ciphertext, which must be a multiple
+	// of 16, so at most 240. The first plaintext octet is the Data-Length
+	// field, leaving 239 octets for the password.
+	tunnelPasswordMaxLen = 239
 )
 
-// EncryptTunnelPassword encrypts a tunnel password per RFC 2868 §3.3.
+// EncryptTunnelPassword encrypts a tunnel password per RFC 2868 §3.5.
 // requestAuth is the 16-byte Request Authenticator from the enclosing
-// Access-Request packet. tag is the optional 1-byte tunnel tag; pass
-// hasTag=false to omit it. When hasTag is true, tag MUST be in 0x01..0x1F.
+// Access-Request packet. The optional Tag is NOT applied here; callers
+// that need a tagged Tunnel-Password attribute should prepend the Tag byte
+// via EncodeTunnelTag at the attribute layer.
 //
-// Returns the Value field (Salt + encrypted password, with the tag flag
-// baked into the Salt's high bit) ready to be placed in a Tunnel-Password
-// attribute.
-func EncryptTunnelPassword(password []byte, requestAuth [16]byte, secret []byte, tag byte, hasTag bool) ([]byte, error) {
+// Returns the Value field (Salt + encrypted String) ready to be placed in a
+// Tunnel-Password attribute.
+func EncryptTunnelPassword(password []byte, requestAuth [16]byte, secret []byte) ([]byte, error) {
 	if len(secret) == 0 {
 		return nil, radiuserrors.ErrSecretEmpty
 	}
 	if len(password) > tunnelPasswordMaxLen {
 		return nil, radiuserrors.ErrPasswordTooLong
 	}
-	if hasTag && (tag == 0 || tag > 0x1F) {
-		return nil, radiuserrors.ErrInvalidAttribute
-	}
-
-	// Generate a 2-byte salt. The high bit of salt[0] is the "tag present"
-	// flag; the remaining 15 bits must be random.
 	salt := make([]byte, 2)
 	if _, err := rand.Read(salt); err != nil {
 		return nil, err
 	}
-	salt[0] &= 0x7F // clear high bit for now
-	if hasTag {
-		salt[0] |= 0x80
-	}
+	salt[0] |= 0x80 // RFC 2868 §3.5: the MSB of Salt MUST be set.
+	return encryptSaltedPassword(password, requestAuth, secret, salt), nil
+}
 
-	// Pad password to a 16-byte boundary with NULs (at least one block).
-	paddedLen := ((len(password) + 15) / 16) * 16
-	if paddedLen == 0 {
-		paddedLen = 16
+// encryptSaltedPassword applies the RFC 2868 §3.5 / RFC 2548 §3.3
+// MD5-feedback encryption with an explicit salt. The plaintext is
+// Data-Length(1) + password + random padding to a 16-byte boundary. The
+// returned slice is salt + ciphertext. The padding is random to avoid
+// leaking plaintext-derived bytes (matching FreeRADIUS encode_tunnel_password).
+func encryptSaltedPassword(password []byte, requestAuth [16]byte, secret, salt []byte) []byte {
+	padding := make([]byte, saltedPaddingLen(len(password)))
+	if _, err := rand.Read(padding); err != nil {
+		padding = padding[:0]
 	}
-	padded := make([]byte, paddedLen)
-	copy(padded, password)
+	return encryptSaltedPasswordWithPadding(password, requestAuth, secret, salt, padding)
+}
 
-	// Build the keystream seed: secret + salt [+ tag] + RA (RA only in b1).
-	seed := make([]byte, 0, len(secret)+2+1+16)
-	seed = append(seed, secret...)
-	seed = append(seed, salt...)
-	if hasTag {
-		seed = append(seed, tag)
+// saltedPaddingLen returns the number of padding octets needed so that
+// 1 (Data-Length) + len(password) + padding is a multiple of 16. RFC 2868
+// §3.5 requires padding when the Data-Length + Password length is not a
+// multiple of 16; the total plaintext is always at least one 16-octet
+// block.
+func saltedPaddingLen(passwordLen int) int {
+	plaintextLen := 1 + passwordLen
+	padded := ((plaintextLen + 15) / 16) * 16
+	return padded - plaintextLen
+}
+
+// encryptSaltedPasswordWithPadding is the deterministic core: the caller
+// supplies the salt and padding bytes (whose length must equal
+// saltedPaddingLen(len(password))). Used by tests for known-answer vectors
+// and by MS-MPPE-*-Key encoding which carries a key rather than a password.
+func encryptSaltedPasswordWithPadding(payload []byte, requestAuth [16]byte, secret, salt, padding []byte) []byte {
+	paddedLen := 1 + len(payload) + len(padding)
+	plaintext := make([]byte, paddedLen)
+	plaintext[0] = byte(len(payload))
+	copy(plaintext[1:], payload)
+	copy(plaintext[1+len(payload):], padding)
+
+	ciphertext := make([]byte, paddedLen)
+	hashBuf := make([]byte, 0, len(secret)+16+2)
+	// b(1) = MD5(Secret + RequestAuth + Salt)
+	hashBuf = append(hashBuf, secret...)
+	hashBuf = append(hashBuf, requestAuth[:]...)
+	hashBuf = append(hashBuf, salt...)
+	prev := md5.Sum(hashBuf)
+	for j := 0; j < 16; j++ {
+		ciphertext[j] = plaintext[j] ^ prev[j]
 	}
-	seed = append(seed, requestAuth[:]...)
-
-	b := md5.Sum(seed)
+	// b(i) = MD5(Secret + c(i-1))
+	for i := 16; i < paddedLen; i += 16 {
+		hashBuf = hashBuf[:0]
+		hashBuf = append(hashBuf, secret...)
+		hashBuf = append(hashBuf, ciphertext[i-16:i]...)
+		prev = md5.Sum(hashBuf)
+		for j := 0; j < 16; j++ {
+			ciphertext[i+j] = plaintext[i+j] ^ prev[j]
+		}
+	}
 	out := make([]byte, 0, 2+paddedLen)
 	out = append(out, salt...)
-	if hasTag {
-		out = append(out, tag)
-	}
-	ciphertext := make([]byte, paddedLen)
-	for j := range 16 {
-		ciphertext[j] = padded[j] ^ b[j]
-	}
-	// Subsequent blocks: b(i) = MD5(secret + c(i-1)).
-	prev := make([]byte, 16)
-	copy(prev, ciphertext[:16])
-	for i := 16; i < paddedLen; i += 16 {
-		hashBuf := make([]byte, 0, len(secret)+16)
-		hashBuf = append(hashBuf, secret...)
-		hashBuf = append(hashBuf, prev...)
-		b = md5.Sum(hashBuf)
-		for j := range 16 {
-			ciphertext[i+j] = padded[i+j] ^ b[j]
-		}
-		copy(prev, ciphertext[i:i+16])
-	}
 	out = append(out, ciphertext...)
-	return out, nil
+	return out
 }
 
 // DecryptTunnelPassword reverses EncryptTunnelPassword. value is the
-// Tunnel-Password attribute Value (Salt [+ tag] + encrypted password).
-// requestAuth is the Request Authenticator of the enclosing Access-Request.
+// Tunnel-Password attribute Value (Salt + encrypted String). requestAuth is
+// the Request Authenticator of the enclosing Access-Request.
 //
-// Returns the plaintext password (with NUL padding stripped) and, when
-// present, the tag and hasTag=true.
-func DecryptTunnelPassword(value []byte, requestAuth [16]byte, secret []byte) (password []byte, tag byte, hasTag bool, err error) {
+// Returns the plaintext password recovered via the Data-Length field; any
+// padding is discarded.
+func DecryptTunnelPassword(value []byte, requestAuth [16]byte, secret []byte) ([]byte, error) {
+	return decryptSaltedAttribute(value, requestAuth, secret)
+}
+
+// decryptSaltedAttribute reverses the RFC 2868 §3.5 / RFC 2548 §3.3 salted
+// MD5-feedback encryption and returns the payload (Password or Key) scoped by
+// the leading length-prefix octet. Shared by DecryptTunnelPassword and
+// DecryptMPPEKey, whose wire algorithms are identical.
+func decryptSaltedAttribute(value []byte, requestAuth [16]byte, secret []byte) ([]byte, error) {
 	if len(secret) == 0 {
-		return nil, 0, false, radiuserrors.ErrSecretEmpty
+		return nil, radiuserrors.ErrSecretEmpty
 	}
 	if len(value) < 3 {
-		return nil, 0, false, radiuserrors.ErrInvalidAttribute
+		return nil, radiuserrors.ErrInvalidAttribute
 	}
 	salt := value[:2]
-	hasTag = salt[0]&0x80 != 0
 	body := value[2:]
-	if hasTag {
-		if len(body) < 1 {
-			return nil, 0, false, radiuserrors.ErrInvalidAttribute
-		}
-		tag = body[0]
-		body = body[1:]
-	}
 	if len(body) == 0 || len(body)%16 != 0 {
-		return nil, 0, false, radiuserrors.ErrInvalidAttribute
+		return nil, radiuserrors.ErrInvalidAttribute
 	}
-
-	// Rebuild the first-block keystream.
-	seed := make([]byte, 0, len(secret)+2+1+16)
-	seed = append(seed, secret...)
-	seed = append(seed, salt...)
-	if hasTag {
-		seed = append(seed, tag)
-	}
-	seed = append(seed, requestAuth[:]...)
-	b := md5.Sum(seed)
 
 	plaintext := make([]byte, len(body))
-	for j := range 16 {
-		plaintext[j] = body[j] ^ b[j]
+	hashBuf := make([]byte, 0, len(secret)+16+2)
+	// b(1) = MD5(Secret + RequestAuth + Salt)
+	hashBuf = append(hashBuf, secret...)
+	hashBuf = append(hashBuf, requestAuth[:]...)
+	hashBuf = append(hashBuf, salt...)
+	prev := md5.Sum(hashBuf)
+	for j := 0; j < 16; j++ {
+		plaintext[j] = body[j] ^ prev[j]
 	}
-	prev := make([]byte, 16)
-	copy(prev, body[:16])
 	for i := 16; i < len(body); i += 16 {
-		hashBuf := make([]byte, 0, len(secret)+16)
+		hashBuf = hashBuf[:0]
 		hashBuf = append(hashBuf, secret...)
-		hashBuf = append(hashBuf, prev...)
-		b = md5.Sum(hashBuf)
-		for j := range 16 {
-			plaintext[i+j] = body[i+j] ^ b[j]
+		hashBuf = append(hashBuf, body[i-16:i]...)
+		prev = md5.Sum(hashBuf)
+		for j := 0; j < 16; j++ {
+			plaintext[i+j] = body[i+j] ^ prev[j]
 		}
-		copy(prev, body[i:i+16])
 	}
-	for len(plaintext) > 0 && plaintext[len(plaintext)-1] == 0 {
-		plaintext = plaintext[:len(plaintext)-1]
+	dataLen := int(plaintext[0])
+	if dataLen > len(plaintext)-1 {
+		return nil, radiuserrors.ErrInvalidAttribute
 	}
-	return plaintext, tag, hasTag, nil
+	payload := make([]byte, dataLen)
+	copy(payload, plaintext[1:1+dataLen])
+	return payload, nil
 }
 
 // EncodeTunnelTag encodes a 1-byte tag prefix for a tagged tunnel attribute

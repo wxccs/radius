@@ -128,6 +128,14 @@ methods mirroring `Authenticate`; the server-side `Handler` receives the
 raw `*server.Request` and can branch on `req.Code`. See the
 [package docs](https://pkg.go.dev/github.com/wxccs/radius) for the full API.
 
+By default `SendCoA`/`SendDisconnect` omit the Message-Authenticator
+attribute (RFC 5176 §3.4 makes it OPTIONAL, matching FreeRADIUS radclient),
+which is required for interoperability with NAS implementations such as
+Cisco IOS-XE dynamic-author that reject CoA/DM packets carrying it. Enable
+it per-Client via `WithMessageAuthenticatorRequired(true)` or per-request
+via `CoARequestBuilder.MessageAuthenticator()` /
+`DisconnectRequestBuilder.MessageAuthenticator()`.
+
 ## Transports
 
 The `transport/` package exposes four transports, all of which use the
@@ -167,7 +175,7 @@ Code:
 | `vendors/h3c`       | H3C       | 25506 |
 | `vendors/huawei`    | Huawei    | 2011  |
 | `vendors/juniper`   | Juniper   | 2636  |
-| `vendors/alcatel`   | Alcatel   | 800   |
+| `vendors/alcatel`   | Alcatel   | 3041  |
 | `vendors/redback`   | Redback   | 2352  |
 | `vendors/microsoft` | Microsoft | 311   |
 | `vendors/paloalto`  | PaloAlto  | 25461 |

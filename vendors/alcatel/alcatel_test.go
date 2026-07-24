@@ -24,5 +24,5 @@ func TestDecode_NonAlcatelRejected(t *testing.T) {
 }
 
 func TestVendorID_Constant(t *testing.T) {
-	assert.Equal(t, uint32(800), VendorID)
+	assert.Equal(t, uint32(3041), VendorID)
 }

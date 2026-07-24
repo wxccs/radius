@@ -106,16 +106,20 @@ func GenerateNTResponse(authenticatorChallenge, peerChallenge [MSCHAPv2Challenge
 	return desEncryptNTResponse(ntHash, challenge)
 }
 
-// GenerateAuthenticatorResponse implements RFC 2759 §8.7:
+// GenerateAuthenticatorResponse implements RFC 2759 §8.7. It derives the
+// 42-octet "S=<40 hex>" Authenticator Response string that the server
+// compares against the MS-CHAP2-Response attribute's Authenticator Response
+// field.
 //
-//	AuthenticatorResponse = "S=" + hex(Magic2Hash || Magic3Hash || Magic1)
+//	digest1  = SHA1(NTHashHash || NTResponse || Magic1)
+//	challenge = ChallengeHash(PeerChallenge, AuthenticatorChallenge, UserName)
+//	final    = SHA1(digest1 || challenge || Magic2)
+//	AuthenticatorResponse = "S=" + uppercase_hex(final)
 //
-// where the intermediate hashes are SHA1 over the password-hash-hash
-// concatenations with the three magic constants from RFC 2759 §8.7. The
-// returned string is 42 bytes long: "S=" followed by 40 hex chars.
-//
-// The server compares this against the MS-CHAP2-Response attribute's
-// Authenticator Response field (the S=... string).
+// Magic1 (39 octets, "Magic server to client signing constant") selects the
+// password-hash-hash digest; Magic2 (41 octets, "Pad to make it do more than
+// one iteration") binds the 8-byte challenge. This matches FreeRADIUS
+// mschap_auth_response() in src/modules/rlm_mschap/mschap.c.
 func GenerateAuthenticatorResponse(authenticatorChallenge, peerChallenge [MSCHAPv2ChallengeLength]byte, ntResponse [NTResponseLength]byte, userName, password string) string {
 	ntHash := NtPasswordHash(password)
 	ntHashHash := HashNtPasswordHash(ntHash)
@@ -127,29 +131,21 @@ func GenerateAuthenticatorResponse(authenticatorChallenge, peerChallenge [MSCHAP
 	h1.Write(mschapv2Magic1)
 	digest1 := h1.Sum(nil)
 
-	// Magic2: SHA1(NTHashHash || Magic2)
-	h2 := sha1.New()
-	h2.Write(ntHashHash[:])
-	h2.Write(mschapv2Magic2)
-	digest2 := h2.Sum(nil)
+	// Challenge = ChallengeHash(peerChallenge, authenticatorChallenge, userName)
+	challenge := ChallengeHash(peerChallenge, authenticatorChallenge, userName)
 
-	// Magic3: SHA1(NTHashHash || Magic3)
-	h3 := sha1.New()
-	h3.Write(ntHashHash[:])
-	h3.Write(mschapv2Magic3)
-	digest3 := h3.Sum(nil)
-
-	// Final: SHA1(digest1 || digest2 || digest3)
+	// Final: SHA1(digest1 || challenge || Magic2)
 	hf := sha1.New()
 	hf.Write(digest1)
-	hf.Write(digest2)
-	hf.Write(digest3)
+	hf.Write(challenge[:])
+	hf.Write(mschapv2Magic2)
 	final := hf.Sum(nil)
 
 	return "S=" + hexUpper(final)
 }
 
-// mschapv2Magic1/2/3 are the constants from RFC 2759 §8.7.
+// mschapv2Magic1/2 are the constants from RFC 2759 §8.7 used by
+// GenerateAuthenticatorResponse.
 var (
 	mschapv2Magic1 = []byte{
 		0x4D, 0x61, 0x67, 0x69, 0x63, 0x20, 0x73, 0x65, 0x72, 0x76,
@@ -163,12 +159,6 @@ var (
 		0x72, 0x65, 0x20, 0x74, 0x68, 0x61, 0x6E, 0x20, 0x6F, 0x6E,
 		0x65, 0x20, 0x69, 0x74, 0x65, 0x72, 0x61, 0x74, 0x69, 0x6F,
 		0x6E,
-	}
-	mschapv2Magic3 = []byte{
-		0x54, 0x68, 0x65, 0x20, 0x6D, 0x61, 0x67, 0x69, 0x63, 0x20,
-		0x69, 0x73, 0x20, 0x63, 0x6C, 0x69, 0x65, 0x6E, 0x74, 0x20,
-		0x73, 0x65, 0x6E, 0x64, 0x69, 0x6E, 0x67, 0x20, 0x63, 0x6F,
-		0x6E, 0x73, 0x74, 0x61, 0x6E, 0x74,
 	}
 )
 

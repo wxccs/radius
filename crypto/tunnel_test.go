@@ -24,6 +24,8 @@ package crypto
 
 import (
 	"bytes"
+	"crypto/md5"
+	"encoding/hex"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -32,122 +34,170 @@ import (
 	radiuserrors "github.com/wxccs/radius/v2/errors"
 )
 
-func TestTunnelPassword_RoundTrip_NoTag(t *testing.T) {
+// goldenRA is the Request Authenticator used by the known-answer vectors. It
+// is the byte sequence 0x00..0x0f.
+var goldenRA = [16]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+
+// TestTunnelPassword_KnownAnswer_SingleBlock verifies the exact ciphertext for
+// a single-block plaintext, computed independently against RFC 2868 §3.5:
+//
+//	b(1) = MD5(Secret + RequestAuth + Salt)
+//	c(1) = p(1) XOR b(1)
+//
+// This pins the first-block seed order to Secret+RA+Salt (NOT Secret+Salt+RA),
+// which is the core of the RFC 2868 §3.5 / FreeRADIUS encode_tunnel_password
+// construction.
+func TestTunnelPassword_KnownAnswer_SingleBlock(t *testing.T) {
+	secret := []byte("topsecret")
+	salt := []byte{0x80, 0x00}
+	password := []byte("hello")
+	padding := bytes.Repeat([]byte{0x00}, 10) // 1+5+10 = 16
+
+	enc := encryptSaltedPasswordWithPadding(password, goldenRA, secret, salt, padding)
+	want, _ := hex.DecodeString("800045cb961a47ddf4aec31972f44171378a")
+	assert.Equal(t, want, enc, "single-block golden vector (RFC 2868 §3.5)")
+
+	// Cross-check: the first ciphertext block must equal P ^ MD5(secret+RA+salt).
+	plaintext := append([]byte{byte(len(password))}, password...)
+	plaintext = append(plaintext, padding...)
+	b1 := md5.Sum(append(append(append([]byte{}, secret...), goldenRA[:]...), salt...))
+	var c1 [16]byte
+	for i := 0; i < 16; i++ {
+		c1[i] = plaintext[i] ^ b1[i]
+	}
+	assert.Equal(t, c1[:], enc[2:18], "c(1) = p(1) XOR MD5(Secret+RA+Salt)")
+
+	// Round-trip: DecryptTunnelPassword recovers the password (not the padding).
+	dec, err := DecryptTunnelPassword(enc, goldenRA, secret)
+	require.NoError(t, err)
+	assert.Equal(t, password, dec)
+}
+
+// TestTunnelPassword_KnownAnswer_TwoBlocks verifies the MD5-feedback chain
+// across two blocks: b(i) = MD5(Secret + c(i-1)).
+func TestTunnelPassword_KnownAnswer_TwoBlocks(t *testing.T) {
+	secret := []byte("topsecret")
+	salt := []byte{0x80, 0x00}
+	password := []byte("0123456789abcdef0123456789") // 26 bytes
+	padding := []byte{0x11, 0x22, 0x33, 0x44, 0x55}  // 1+26+5 = 32 (two blocks)
+
+	enc := encryptSaltedPasswordWithPadding(password, goldenRA, secret, salt, padding)
+	want, _ := hex.DecodeString("80005a93c2441886c198f4214b95231253ef27d19aa6f30885740c1894588edd64fc")
+	assert.Equal(t, want, enc, "two-block golden vector (RFC 2868 §3.5)")
+
+	dec, err := DecryptTunnelPassword(enc, goldenRA, secret)
+	require.NoError(t, err)
+	assert.Equal(t, password, dec)
+}
+
+// TestTunnelPassword_DataLengthFieldPresent asserts that the first plaintext
+// octet is the Data-Length field (RFC 2868 §3.5), by decrypting and checking
+// it equals len(password). The previous implementation omitted this field.
+func TestTunnelPassword_DataLengthFieldPresent(t *testing.T) {
+	secret := []byte("s")
+	enc, err := EncryptTunnelPassword([]byte("hunter2"), goldenRA, secret)
+	require.NoError(t, err)
+	// Decrypt the raw body to inspect the Data-Length byte (offset 0 of the
+	// plaintext). We reuse DecryptTunnelPassword and additionally verify the
+	// recovered value has no trailing padding leak.
+	dec, err := DecryptTunnelPassword(enc, goldenRA, secret)
+	require.NoError(t, err)
+	assert.Equal(t, []byte("hunter2"), dec)
+	assert.Len(t, dec, 7, "Data-Length must scope exactly the password, no padding")
+}
+
+func TestTunnelPassword_SaltHighBitAlwaysSet(t *testing.T) {
+	secret := []byte("s")
+	for range 50 {
+		enc, err := EncryptTunnelPassword([]byte("p"), goldenRA, secret)
+		require.NoError(t, err)
+		assert.NotZero(t, enc[0]&0x80, "Salt MSB MUST be set (RFC 2868 §3.5)")
+	}
+}
+
+func TestTunnelPassword_RoundTrip(t *testing.T) {
 	secret := []byte("tunnel-secret")
-	var ra [16]byte
-	for i := range ra {
-		ra[i] = byte(i + 1)
+	cases := [][]byte{
+		[]byte("hunter2"),
+		[]byte(""),
+		bytes.Repeat([]byte("x"), 100),
+		bytes.Repeat([]byte("y"), tunnelPasswordMaxLen), // boundary: 239
 	}
-	password := []byte("hunter2")
-
-	enc, err := EncryptTunnelPassword(password, ra, secret, 0, false)
-	require.NoError(t, err)
-	// Salt (2) + at least one 16-byte block.
-	assert.GreaterOrEqual(t, len(enc), 18)
-	assert.Less(t, len(enc), 18+16)
-
-	dec, tag, hasTag, err := DecryptTunnelPassword(enc, ra, secret)
-	require.NoError(t, err)
-	assert.Equal(t, password, dec)
-	assert.False(t, hasTag)
-	assert.Equal(t, byte(0), tag)
-}
-
-func TestTunnelPassword_RoundTrip_WithTag(t *testing.T) {
-	secret := []byte("tagged-secret")
-	var ra [16]byte
-	for i := range ra {
-		ra[i] = byte(0xA0 + i)
+	for _, pw := range cases {
+		enc, err := EncryptTunnelPassword(pw, goldenRA, secret)
+		require.NoError(t, err)
+		dec, err := DecryptTunnelPassword(enc, goldenRA, secret)
+		require.NoError(t, err)
+		assert.Equal(t, pw, dec)
 	}
-	password := []byte("tagged-password-value")
-
-	enc, err := EncryptTunnelPassword(password, ra, secret, 0x05, true)
-	require.NoError(t, err)
-	// Salt high bit must be set when tag is present.
-	assert.NotZero(t, enc[0]&0x80, "salt high bit must signal tag presence")
-
-	dec, tag, hasTag, err := DecryptTunnelPassword(enc, ra, secret)
-	require.NoError(t, err)
-	assert.Equal(t, password, dec)
-	assert.True(t, hasTag)
-	assert.Equal(t, byte(0x05), tag)
-}
-
-func TestTunnelPassword_LongPasswordRoundTrip(t *testing.T) {
-	secret := []byte("long-secret")
-	var ra [16]byte
-	password := bytes.Repeat([]byte("x"), 100)
-
-	enc, err := EncryptTunnelPassword(password, ra, secret, 0, false)
-	require.NoError(t, err)
-	dec, _, _, err := DecryptTunnelPassword(enc, ra, secret)
-	require.NoError(t, err)
-	assert.Equal(t, password, dec)
 }
 
 func TestTunnelPassword_DistinctSalts(t *testing.T) {
-	// Two encryptions of the same password must differ (random salt).
 	secret := []byte("s")
-	var ra [16]byte
-	password := []byte("same")
-	enc1, err := EncryptTunnelPassword(password, ra, secret, 0, false)
+	pw := []byte("same")
+	enc1, err := EncryptTunnelPassword(pw, goldenRA, secret)
 	require.NoError(t, err)
-	enc2, err := EncryptTunnelPassword(password, ra, secret, 0, false)
+	enc2, err := EncryptTunnelPassword(pw, goldenRA, secret)
 	require.NoError(t, err)
 	assert.NotEqual(t, enc1, enc2, "random salt must produce distinct ciphertexts")
 }
 
 func TestTunnelPassword_RejectsEmptySecret(t *testing.T) {
-	var ra [16]byte
-	_, err := EncryptTunnelPassword([]byte("p"), ra, nil, 0, false)
+	_, err := EncryptTunnelPassword([]byte("p"), goldenRA, nil)
+	assert.ErrorIs(t, err, radiuserrors.ErrSecretEmpty)
+	_, err = DecryptTunnelPassword([]byte{0x80, 0, 0, 0}, goldenRA, nil)
 	assert.ErrorIs(t, err, radiuserrors.ErrSecretEmpty)
 }
 
 func TestTunnelPassword_RejectsTooLongPassword(t *testing.T) {
 	secret := []byte("s")
-	var ra [16]byte
-	_, err := EncryptTunnelPassword(make([]byte, 241), ra, secret, 0, false)
+	// tunnelPasswordMaxLen is 239; 240 must be rejected.
+	_, err := EncryptTunnelPassword(make([]byte, tunnelPasswordMaxLen+1), goldenRA, secret)
 	assert.ErrorIs(t, err, radiuserrors.ErrPasswordTooLong)
-}
-
-func TestTunnelPassword_RejectsInvalidTag(t *testing.T) {
-	secret := []byte("s")
-	var ra [16]byte
-	cases := []byte{0x00, 0x20, 0xFF}
-	for _, tag := range cases {
-		_, err := EncryptTunnelPassword([]byte("p"), ra, secret, tag, true)
-		assert.ErrorIs(t, err, radiuserrors.ErrInvalidAttribute, "tag 0x%02X must be rejected", tag)
-	}
+	// Exactly 239 is accepted.
+	_, err = EncryptTunnelPassword(make([]byte, tunnelPasswordMaxLen), goldenRA, secret)
+	assert.NoError(t, err)
 }
 
 func TestTunnelPassword_DecryptRejectsMalformed(t *testing.T) {
 	secret := []byte("s")
-	var ra [16]byte
-	_, _, _, err := DecryptTunnelPassword([]byte{0x01, 0x02}, ra, secret)
+	// Too short (< 3: need salt + at least one block byte).
+	_, err := DecryptTunnelPassword([]byte{0x80, 0x02}, goldenRA, secret)
 	assert.ErrorIs(t, err, radiuserrors.ErrInvalidAttribute, "value too short")
 
-	_, _, _, err = DecryptTunnelPassword([]byte{0x01, 0x02, 0x03, 0x04, 0x05}, ra, secret)
+	// Ciphertext not a multiple of 16 (salt + 3 bytes).
+	_, err = DecryptTunnelPassword([]byte{0x80, 0x02, 0x03, 0x04, 0x05}, goldenRA, secret)
 	assert.ErrorIs(t, err, radiuserrors.ErrInvalidAttribute, "ciphertext not multiple of 16")
+}
 
-	// Tag present but no body after tag.
-	_, _, _, err = DecryptTunnelPassword([]byte{0x80, 0x02, 0x05}, ra, secret)
-	assert.ErrorIs(t, err, radiuserrors.ErrInvalidAttribute, "tag with no ciphertext")
+func TestTunnelPassword_DecryptRejectsBadDataLength(t *testing.T) {
+	// Construct a value whose decrypted Data-Length exceeds the body.
+	secret := []byte("s")
+	salt := []byte{0x80, 0x00}
+	// Plaintext: Data-Length=0xFF, rest zeros (one block).
+	plaintext := []byte{0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}
+	b1 := md5.Sum(append(append(append([]byte{}, secret...), goldenRA[:]...), salt...))
+	ciphertext := make([]byte, 16)
+	for i := 0; i < 16; i++ {
+		ciphertext[i] = plaintext[i] ^ b1[i]
+	}
+	value := append([]byte{0x80, 0x00}, ciphertext...)
+	_, err := DecryptTunnelPassword(value, goldenRA, secret)
+	assert.ErrorIs(t, err, radiuserrors.ErrInvalidAttribute, "Data-Length > body must be rejected")
 }
 
 func TestTunnelPassword_DifferentSecretsFailToDecrypt(t *testing.T) {
 	secret := []byte("correct-secret")
 	wrong := []byte("wrong-secret")
-	var ra [16]byte
-	password := []byte("secret-value")
-
-	enc, err := EncryptTunnelPassword(password, ra, secret, 0, false)
+	enc, err := EncryptTunnelPassword([]byte("secret-value"), goldenRA, secret)
 	require.NoError(t, err)
-
-	dec, _, _, err := DecryptTunnelPassword(enc, ra, wrong)
-	// Decryption succeeds structurally but produces garbage; it should not
-	// equal the original password.
-	assert.NoError(t, err)
-	assert.NotEqual(t, password, dec, "wrong secret must not recover the plaintext")
+	dec, err := DecryptTunnelPassword(enc, goldenRA, wrong)
+	// A wrong secret yields a garbage Data-Length. It may exceed the body
+	// (returning ErrInvalidAttribute, as FreeRADIUS does) or decrypt to
+	// garbage; in neither case may the original password be recovered.
+	if err == nil {
+		assert.NotEqual(t, []byte("secret-value"), dec, "wrong secret must not recover the plaintext")
+	}
 }
 
 func TestEncodeTunnelTag(t *testing.T) {

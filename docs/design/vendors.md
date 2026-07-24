@@ -45,7 +45,7 @@ Vendors currently shipped:
 | `h3c`       | H3C        | 25506    | `NewInputAverageRate`, `NewUserGroup`, `NewBackupNASIP` |
 | `huawei`    | Huawei     | 2011     | `NewInputPeakInformationRate`, `NewAVPair`, `NewFramedIPv6Address` |
 | `juniper`   | Juniper    | 2636     | `NewLocalUserName`, `NewUserPermissions`, `NewSessionPort` |
-| `alcatel`   | Alcatel    | 800      | `NewVLANID`, `NewPrimaryDNS`                  |
+| `alcatel`   | Alcatel    | 3041     | `NewVLANID`, `NewPrimaryDNS`                  |
 | `redback`   | Redback    | 2352     | `NewContextName`, `NewSessionTimeoutAction`    |
 | `microsoft` | Microsoft  | 311      | `NewMSCHAP2SuccessFromAuth`, `NewMPPEKey`, `NewUserIPv4Address`, `NewAzurePolicyID`, `NewTunnelTypeSSTP` |
 | `paloalto`  | PaloAlto   | 25461    | `NewAdminRole`, `NewUserGroup`, `NewClientOS` |

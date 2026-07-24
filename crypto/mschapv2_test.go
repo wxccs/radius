@@ -135,15 +135,32 @@ func TestGenerateNTResponse_DifferentPasswords(t *testing.T) {
 	assert.NotEqual(t, a, b, "different passwords must produce different responses")
 }
 
-func TestGenerateAuthenticatorResponse_Format(t *testing.T) {
-	auth := [16]byte{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
-	peer := [16]byte{16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1}
-	ntResponse := [24]byte{}
+func TestGenerateAuthenticatorResponse_KnownAnswer(t *testing.T) {
+	// Reference vector from layeh/radius (rfc2759/mschapv2_test.go), derived
+	// from RFC 2759 §8.7. Verifies the full GenerateAuthenticatorResponse
+	// chain: digest1=SHA1(PHH||NTResponse||Magic1), challenge=ChallengeHash,
+	// final=SHA1(digest1||challenge||Magic2).
+	auth := [16]byte{
+		0xd5, 0x71, 0x7d, 0x58, 0xe9, 0xfb, 0x9c, 0xf4,
+		0x2d, 0xbb, 0x0c, 0x1a, 0x8a, 0xdf, 0x98, 0x79,
+	}
+	peer := [16]byte{
+		0x27, 0x9c, 0xb4, 0x11, 0x49, 0x4d, 0x5a, 0x84,
+		0xcd, 0xf2, 0xd2, 0xee, 0x36, 0xfb, 0x5c, 0xdd,
+	}
+	ntResponse := [24]byte{
+		0xe6, 0xad, 0x73, 0xb3, 0x73, 0x88, 0x39, 0xcc,
+		0xcf, 0xc0, 0xfb, 0xf3, 0x45, 0x9a, 0x5b, 0x26,
+		0xac, 0x4b, 0x15, 0x9e, 0xfa, 0xb6, 0xb0, 0x3f,
+	}
 
-	got := GenerateAuthenticatorResponse(auth, peer, ntResponse, "user", "pw")
-	require.Len(t, got, 42, "AuthenticatorResponse must be 'S=' + 40 hex chars")
+	got := GenerateAuthenticatorResponse(auth, peer, ntResponse, "test", "superSecretPassword")
+	const want = "S=E776FC79AC79DED99AEFF66893C920EB34F63396"
+	assert.Equal(t, want, got)
+
+	// Format invariants: "S=" prefix, 40 uppercase hex digits.
+	require.Len(t, got, 42)
 	assert.Equal(t, "S=", got[:2])
-	// All hex chars must be uppercase.
 	for _, c := range got[2:] {
 		assert.True(t, (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F'),
 			"char %q is not an uppercase hex digit", c)

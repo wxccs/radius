@@ -1,6 +1,7 @@
 package crypto
 
 import (
+	"crypto/rand"
 	"crypto/sha1"
 	"fmt"
 
@@ -141,4 +142,45 @@ func DeriveMPPEKeysFromPassword(password string, ntResponse [NTResponseLength]by
 		return nil, nil, err
 	}
 	return send, recv, nil
+}
+
+// mppeKeyMaxLen is the maximum key length transportable in a single
+// MS-MPPE-Send-Key / MS-MPPE-Recv-Key attribute (RFC 2548 §3.3). The
+// attribute Value is at most 253 octets; minus the 2-byte Salt leaves 251
+// octets of ciphertext, a multiple of 16 so at most 240; minus the 1-byte
+// Key-Length leaves 239 octets for the key.
+const mppeKeyMaxLen = 239
+
+// EncryptMPPEKey encrypts an MPPE session key per RFC 2548 §3.3 for transport
+// in an MS-MPPE-Send-Key (Vendor-Type 16) or MS-MPPE-Recv-Key (Vendor-Type 17)
+// attribute. The wire algorithm is identical to Tunnel-Password (RFC 2868
+// §3.5): salted MD5-feedback over a length-prefixed plaintext.
+//
+// requestAuth is the 16-byte Request Authenticator of the enclosing
+// Access-Request. Returns the VSA Value (Salt + encrypted String).
+func EncryptMPPEKey(key []byte, requestAuth [16]byte, secret []byte) ([]byte, error) {
+	if len(secret) == 0 {
+		return nil, radiuserrors.ErrSecretEmpty
+	}
+	if len(key) > mppeKeyMaxLen {
+		return nil, radiuserrors.ErrInvalidAttribute
+	}
+	salt := make([]byte, 2)
+	if _, err := rand.Read(salt); err != nil {
+		return nil, err
+	}
+	salt[0] |= 0x80 // RFC 2548 §3.3: the MSB of Salt MUST be set.
+	return encryptSaltedPassword(key, requestAuth, secret, salt), nil
+}
+
+// DecryptMPPEKey reverses EncryptMPPEKey. value is the MS-MPPE-Send-Key /
+// MS-MPPE-Recv-Key attribute Value (Salt + encrypted String). requestAuth is
+// the Request Authenticator of the enclosing Access-Request. Returns the key
+// scoped by the Key-Length field; any padding is discarded.
+//
+// Per RFC 2548 §3.3 Implementation Notes, the returned key may be longer than
+// the encryption scheme in use requires; callers are responsible for any
+// truncation.
+func DecryptMPPEKey(value []byte, requestAuth [16]byte, secret []byte) ([]byte, error) {
+	return decryptSaltedAttribute(value, requestAuth, secret)
 }

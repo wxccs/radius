@@ -1,5 +1,5 @@
 // Package alcatel implements Vendor-Specific attributes for Alcatel
-// (SMI Network Management Private Enterprise Code 800).
+// (SMI Network Management Private Enterprise Code 3041).
 //
 // Alcatel VSAs use the standard RFC 2865 §5.26 layout. They are most
 // often seen in Alcatel-Lucent enterprise and carrier Ethernet gear.
@@ -12,7 +12,7 @@ import (
 
 // VendorID is Alcatel's SMI Network Management Private Enterprise
 // Code, as registered with IANA.
-const VendorID uint32 = 800
+const VendorID uint32 = 3041
 
 // Alcatel VSA sub-type numbers commonly seen in Alcatel-Lucent
 // deployments. The full Alcatel dictionary lists many more; the
