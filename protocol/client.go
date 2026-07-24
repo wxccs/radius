@@ -103,6 +103,11 @@ type AccountingResponse struct {
 // allocated automatically from the Client's pool.
 type CoARequest struct {
 	Attributes []packet.Attribute
+	// MessageAuthenticator overrides the Client's default Message-Authenticator
+	// policy for this request: nil uses the Client default, a non-nil value
+	// forces inclusion (true) or omission (false). Set it via
+	// CoARequestBuilder.MessageAuthenticator / WithoutMessageAuthenticator.
+	MessageAuthenticator *bool
 }
 
 // CoAResponse holds a parsed CoA-ACK / CoA-NAK reply.
@@ -117,6 +122,12 @@ type CoAResponse struct {
 // Identifier is allocated automatically from the Client's pool.
 type DisconnectRequest struct {
 	Attributes []packet.Attribute
+	// MessageAuthenticator overrides the Client's default
+	// Message-Authenticator policy for this request: nil uses the Client
+	// default, a non-nil value forces inclusion (true) or omission (false).
+	// Set it via DisconnectRequestBuilder.MessageAuthenticator /
+	// WithoutMessageAuthenticator.
+	MessageAuthenticator *bool
 }
 
 // DisconnectResponse holds a parsed Disconnect-ACK / Disconnect-NAK reply.
@@ -135,6 +146,12 @@ type Client struct {
 	retransmit     RetransmitPolicy
 	defaultTimeout time.Duration
 	log            radiuslog.Logger
+	// coaMessageAuthenticator controls whether outgoing CoA-Request and
+	// Disconnect-Request packets carry a Message-Authenticator attribute.
+	// The default (false) omits it (RFC 5176 §3.4 makes the attribute
+	// OPTIONAL, matching FreeRADIUS radclient). A per-request override on
+	// CoARequest/DisconnectRequest takes precedence.
+	coaMessageAuthenticator bool
 }
 
 // Option configures a Client at construction time.
@@ -167,6 +184,22 @@ func WithLogger(l radiuslog.Logger) Option {
 		return func(c *Client) { c.log = radiuslog.NopLogger{} }
 	}
 	return func(c *Client) { c.log = l }
+}
+
+// WithMessageAuthenticatorRequired controls whether outgoing CoA-Request and
+// Disconnect-Request packets carry a Message-Authenticator attribute (RFC
+// 5176 §3.4, which makes the attribute OPTIONAL). The default (false) omits
+// it, matching FreeRADIUS radclient and interoperating with NAS
+// implementations (e.g. Cisco IOS-XE dynamic-author) that reject CoA/DM
+// packets carrying Message-Authenticator. Set required=true to include
+// Message-Authenticator for environments that require or benefit from the
+// additional off-path integrity protection. A per-request override on
+// CoARequest/DisconnectRequest takes precedence over this default.
+//
+// This does not affect Access-Request packets: EAP authentication always
+// carries Message-Authenticator (RFC 3579), while PAP does not.
+func WithMessageAuthenticatorRequired(required bool) Option {
+	return func(c *Client) { c.coaMessageAuthenticator = required }
 }
 
 // NewClient returns a Client that exchanges packets over t using secret.
@@ -315,8 +348,13 @@ func (c *Client) Account(ctx context.Context, req *AccountingRequest) (*Accounti
 	}, nil
 }
 
-// SendCoA sends a CoA-Request (RFC 5176). A Message-Authenticator attribute
-// is added if absent (RFC 5176 §3.4 mandates it).
+// SendCoA sends a CoA-Request (RFC 5176). By default no Message-Authenticator
+// is added: RFC 5176 §3.4 makes it OPTIONAL and FreeRADIUS radclient omits it
+// by default, which is required for interoperability with some NAS
+// implementations (e.g. Cisco IOS-XE dynamic-author rejects CoA/DM packets
+// carrying Message-Authenticator). Enable it per-Client via
+// WithMessageAuthenticatorRequired(true) or per-request via
+// CoARequestBuilder.MessageAuthenticator.
 func (c *Client) SendCoA(ctx context.Context, req *CoARequest) (*CoAResponse, error) {
 	ctx, cancel := c.applyDefaultTimeout(ctx)
 	defer cancel()
@@ -329,7 +367,7 @@ func (c *Client) SendCoA(ctx context.Context, req *CoARequest) (*CoAResponse, er
 	defer c.idPool.Release(allocated)
 
 	attrs := req.Attributes
-	if !containsMessageAuthenticator(attrs) {
+	if shouldIncludeMessageAuthenticator(c.coaMessageAuthenticator, req.MessageAuthenticator) && !containsMessageAuthenticator(attrs) {
 		attrs = append([]packet.Attribute{
 			packet.NewOctets(types.AttrMessageAuthenticator, make([]byte, 16)),
 		}, attrs...)
@@ -366,8 +404,10 @@ func (c *Client) SendCoA(ctx context.Context, req *CoARequest) (*CoAResponse, er
 	}, nil
 }
 
-// SendDisconnect sends a Disconnect-Request (RFC 5176). A Message-Authenticator
-// attribute is added if absent (RFC 5176 §3.4 mandates it).
+// SendDisconnect sends a Disconnect-Request (RFC 5176). By default no
+// Message-Authenticator is added (RFC 5176 §3.4 OPTIONAL, matching FreeRADIUS
+// radclient); enable it per-Client via WithMessageAuthenticatorRequired(true)
+// or per-request via DisconnectRequestBuilder.MessageAuthenticator.
 func (c *Client) SendDisconnect(ctx context.Context, req *DisconnectRequest) (*DisconnectResponse, error) {
 	ctx, cancel := c.applyDefaultTimeout(ctx)
 	defer cancel()
@@ -380,7 +420,7 @@ func (c *Client) SendDisconnect(ctx context.Context, req *DisconnectRequest) (*D
 	defer c.idPool.Release(allocated)
 
 	attrs := req.Attributes
-	if !containsMessageAuthenticator(attrs) {
+	if shouldIncludeMessageAuthenticator(c.coaMessageAuthenticator, req.MessageAuthenticator) && !containsMessageAuthenticator(attrs) {
 		attrs = append([]packet.Attribute{
 			packet.NewOctets(types.AttrMessageAuthenticator, make([]byte, 16)),
 		}, attrs...)
@@ -507,6 +547,17 @@ func (c *Client) exchangeWithRetransmit(
 		return nil, lastErr
 	}
 	return nil, ErrNoResponse
+}
+
+// shouldIncludeMessageAuthenticator resolves whether a CoA-Request or
+// Disconnect-Request should carry a Message-Authenticator attribute. A
+// per-request override (non-nil reqMA) takes precedence over the Client
+// default; otherwise the Client default (clientDefault) applies.
+func shouldIncludeMessageAuthenticator(clientDefault bool, reqMA *bool) bool {
+	if reqMA != nil {
+		return *reqMA
+	}
+	return clientDefault
 }
 
 // containsMessageAuthenticator reports whether attrs already includes a

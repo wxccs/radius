@@ -114,6 +114,26 @@ func TestDisconnectRequestBuilder(t *testing.T) {
 	require.Len(t, req.Attributes, 1)
 }
 
+func TestCoARequestBuilder_MessageAuthenticator(t *testing.T) {
+	req := NewCoARequest().
+		AttrString(types.AttrUserName, "alice").
+		MessageAuthenticator().
+		Build()
+	require.NotNil(t, req)
+	require.NotNil(t, req.MessageAuthenticator, "builder must set the per-request override")
+	assert.True(t, *req.MessageAuthenticator)
+}
+
+func TestDisconnectRequestBuilder_WithoutMessageAuthenticator(t *testing.T) {
+	req := NewDisconnectRequest().
+		AttrString(types.AttrAcctSessionID, "sess-42").
+		WithoutMessageAuthenticator().
+		Build()
+	require.NotNil(t, req)
+	require.NotNil(t, req.MessageAuthenticator, "builder must set the per-request override")
+	assert.False(t, *req.MessageAuthenticator)
+}
+
 func TestAccountingRequestBuilder_AttrsCopy(t *testing.T) {
 	attrs := []packet.Attribute{packet.NewString(types.AttrUserName, "alice")}
 	req := NewAccountingRequest().Attrs(attrs).Build()

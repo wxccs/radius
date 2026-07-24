@@ -31,6 +31,7 @@ import (
 )
 
 func newCoACmd() *cobra.Command {
+	var requireMessageAuthenticator bool
 	cmd := &cobra.Command{
 		Use:   "coa",
 		Short: "Send a CoA-Request (RFC 5176)",
@@ -53,7 +54,12 @@ func newCoACmd() *cobra.Command {
 			ctx, cancel := callCtx()
 			defer cancel()
 
-			resp, err := c.SendCoA(ctx, &protocol.CoARequest{Attributes: attrs})
+			req := &protocol.CoARequest{Attributes: attrs}
+			if requireMessageAuthenticator {
+				t := true
+				req.MessageAuthenticator = &t
+			}
+			resp, err := c.SendCoA(ctx, req)
 			if err != nil {
 				return fmt.Errorf("coa-request failed: %w", err)
 			}
@@ -62,6 +68,8 @@ func newCoACmd() *cobra.Command {
 			return nil
 		},
 	}
-	cmd.Flags().StringArray("attr", nil, "attribute as type:value (repeatable). CoA-Request auto-includes Message-Authenticator.")
+	cmd.Flags().StringArray("attr", nil, "attribute as type:value (repeatable).")
+	cmd.Flags().BoolVar(&requireMessageAuthenticator, "message-authenticator", false,
+		"include a Message-Authenticator attribute (RFC 5176 §3.4). Omitted by default for compatibility with NAS implementations that reject it (e.g. Cisco IOS-XE dynamic-author).")
 	return cmd
 }

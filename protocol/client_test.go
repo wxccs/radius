@@ -327,14 +327,13 @@ func TestClient_SendCoA(t *testing.T) {
 	secret := []byte("coa-secret")
 	tr := &fakeTransport{}
 	tr.replyFn = func(raw []byte) ([]byte, error) {
-		// Verify the outgoing CoA-Request carries Message-Authenticator.
+		// Default policy: Message-Authenticator is omitted (RFC 5176 §3.4
+		// OPTIONAL, matching FreeRADIUS radclient).
 		p := &packet.Packet{}
 		require.NoError(t, p.Unmarshal(raw, secret))
 		_, ok := p.GetOne(types.AttrMessageAuthenticator)
-		require.True(t, ok, "CoA-Request must carry Message-Authenticator (RFC 5176 §3.4)")
+		assert.False(t, ok, "CoA-Request must omit Message-Authenticator by default")
 		reqAuth := extractRequestAuth(raw)
-		require.NoError(t, packet.VerifyMessageAuthenticator(raw, reqAuth, secret))
-
 		return buildReply(t, raw, types.CoAACK, reqAuth, secret, nil), nil
 	}
 	c := NewClient(tr, secret, WithRetransmitPolicy(RetransmitPolicy{MaxAttempts: 1}))
@@ -372,10 +371,11 @@ func TestClient_SendDisconnect(t *testing.T) {
 	secret := []byte("dm-secret")
 	tr := &fakeTransport{}
 	tr.replyFn = func(raw []byte) ([]byte, error) {
+		// Default policy: Message-Authenticator is omitted.
 		p := &packet.Packet{}
 		require.NoError(t, p.Unmarshal(raw, secret))
 		_, ok := p.GetOne(types.AttrMessageAuthenticator)
-		require.True(t, ok, "Disconnect-Request must carry Message-Authenticator (RFC 5176 §3.4)")
+		assert.False(t, ok, "Disconnect-Request must omit Message-Authenticator by default")
 
 		reqAuth := extractRequestAuth(raw)
 		return buildReply(t, raw, types.DisconnectACK, reqAuth, secret, nil), nil
@@ -389,6 +389,139 @@ func TestClient_SendDisconnect(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.Equal(t, byte(tr.sent[0][1]), resp.Identifier)
+}
+
+func TestClient_SendCoA_WithMessageAuthenticatorRequired(t *testing.T) {
+	secret := []byte("coa-ma-secret")
+	tr := &fakeTransport{}
+	tr.replyFn = func(raw []byte) ([]byte, error) {
+		p := &packet.Packet{}
+		require.NoError(t, p.Unmarshal(raw, secret))
+		_, ok := p.GetOne(types.AttrMessageAuthenticator)
+		require.True(t, ok, "CoA-Request must carry Message-Authenticator when required")
+		reqAuth := extractRequestAuth(raw)
+		require.NoError(t, packet.VerifyMessageAuthenticator(raw, reqAuth, secret))
+		return buildReply(t, raw, types.CoAACK, reqAuth, secret, nil), nil
+	}
+	c := NewClient(tr, secret,
+		WithRetransmitPolicy(RetransmitPolicy{MaxAttempts: 1}),
+		WithMessageAuthenticatorRequired(true))
+
+	resp, err := c.SendCoA(context.Background(), &CoARequest{
+		Attributes: []packet.Attribute{packet.NewString(types.AttrAcctSessionID, "sess-ma")},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.CoAACK, resp.Code)
+}
+
+func TestClient_SendDisconnect_WithMessageAuthenticatorRequired(t *testing.T) {
+	secret := []byte("dm-ma-secret")
+	tr := &fakeTransport{}
+	tr.replyFn = func(raw []byte) ([]byte, error) {
+		p := &packet.Packet{}
+		require.NoError(t, p.Unmarshal(raw, secret))
+		_, ok := p.GetOne(types.AttrMessageAuthenticator)
+		require.True(t, ok, "Disconnect-Request must carry Message-Authenticator when required")
+		reqAuth := extractRequestAuth(raw)
+		require.NoError(t, packet.VerifyMessageAuthenticator(raw, reqAuth, secret))
+		return buildReply(t, raw, types.DisconnectACK, reqAuth, secret, nil), nil
+	}
+	c := NewClient(tr, secret,
+		WithRetransmitPolicy(RetransmitPolicy{MaxAttempts: 1}),
+		WithMessageAuthenticatorRequired(true))
+
+	resp, err := c.SendDisconnect(context.Background(), &DisconnectRequest{
+		Attributes: []packet.Attribute{packet.NewString(types.AttrAcctSessionID, "sess-dm-ma")},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.DisconnectACK, resp.Code)
+}
+
+// TestClient_SendCoA_BuilderMessageAuthenticator forces Message-Authenticator
+// on for a single request even though the Client default omits it.
+func TestClient_SendCoA_BuilderMessageAuthenticator(t *testing.T) {
+	secret := []byte("coa-builder-secret")
+	tr := &fakeTransport{}
+	tr.replyFn = func(raw []byte) ([]byte, error) {
+		p := &packet.Packet{}
+		require.NoError(t, p.Unmarshal(raw, secret))
+		_, ok := p.GetOne(types.AttrMessageAuthenticator)
+		require.True(t, ok, "builder override must force Message-Authenticator")
+		reqAuth := extractRequestAuth(raw)
+		require.NoError(t, packet.VerifyMessageAuthenticator(raw, reqAuth, secret))
+		return buildReply(t, raw, types.CoAACK, reqAuth, secret, nil), nil
+	}
+	// Client default: no MA. Builder override forces it on.
+	c := NewClient(tr, secret, WithRetransmitPolicy(RetransmitPolicy{MaxAttempts: 1}))
+
+	req := NewCoARequest().
+		AttrString(types.AttrAcctSessionID, "sess-builder").
+		MessageAuthenticator().
+		Build()
+	resp, err := c.SendCoA(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, types.CoAACK, resp.Code)
+}
+
+// TestClient_SendDisconnect_BuilderWithoutMessageAuthenticator forces
+// Message-Authenticator off for a single request even though the Client
+// default requires it.
+func TestClient_SendDisconnect_BuilderWithoutMessageAuthenticator(t *testing.T) {
+	secret := []byte("dm-builder-secret")
+	tr := &fakeTransport{}
+	tr.replyFn = func(raw []byte) ([]byte, error) {
+		p := &packet.Packet{}
+		require.NoError(t, p.Unmarshal(raw, secret))
+		_, ok := p.GetOne(types.AttrMessageAuthenticator)
+		assert.False(t, ok, "builder override must omit Message-Authenticator")
+		reqAuth := extractRequestAuth(raw)
+		return buildReply(t, raw, types.DisconnectACK, reqAuth, secret, nil), nil
+	}
+	// Client default requires MA; builder override forces it off.
+	c := NewClient(tr, secret,
+		WithRetransmitPolicy(RetransmitPolicy{MaxAttempts: 1}),
+		WithMessageAuthenticatorRequired(true))
+
+	req := NewDisconnectRequest().
+		AttrString(types.AttrAcctSessionID, "sess-dm-builder").
+		WithoutMessageAuthenticator().
+		Build()
+	resp, err := c.SendDisconnect(context.Background(), req)
+	require.NoError(t, err)
+	assert.Equal(t, types.DisconnectACK, resp.Code)
+}
+
+// TestClient_SendCoA_AlreadyHasMessageAuthenticator verifies a caller-supplied
+// Message-Authenticator is not duplicated when the Client default requires it.
+func TestClient_SendCoA_AlreadyHasMessageAuthenticator(t *testing.T) {
+	secret := []byte("coa-dup-secret")
+	tr := &fakeTransport{}
+	tr.replyFn = func(raw []byte) ([]byte, error) {
+		p := &packet.Packet{}
+		require.NoError(t, p.Unmarshal(raw, secret))
+		var mas []packet.Attribute
+		for _, a := range p.Attributes {
+			if a.Type == types.AttrMessageAuthenticator {
+				mas = append(mas, a)
+			}
+		}
+		require.Len(t, mas, 1, "must not duplicate caller-supplied Message-Authenticator")
+		reqAuth := extractRequestAuth(raw)
+		require.NoError(t, packet.VerifyMessageAuthenticator(raw, reqAuth, secret))
+		return buildReply(t, raw, types.CoAACK, reqAuth, secret, nil), nil
+	}
+	c := NewClient(tr, secret,
+		WithRetransmitPolicy(RetransmitPolicy{MaxAttempts: 1}),
+		WithMessageAuthenticatorRequired(true))
+
+	resp, err := c.SendCoA(context.Background(), &CoARequest{
+		Attributes: []packet.Attribute{
+			packet.NewOctets(types.AttrMessageAuthenticator, make([]byte, 16)),
+			packet.NewString(types.AttrAcctSessionID, "sess-dup"),
+		},
+	})
+	require.NoError(t, err)
+	assert.Equal(t, types.CoAACK, resp.Code)
 }
 
 func TestClient_Close(t *testing.T) {

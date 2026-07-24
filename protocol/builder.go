@@ -174,6 +174,22 @@ func (b *CoARequestBuilder) Attrs(attrs []packet.Attribute) *CoARequestBuilder {
 	return b
 }
 
+// MessageAuthenticator forces a Message-Authenticator attribute into this
+// CoA-Request, overriding the Client's default policy (RFC 5176 §3.4).
+func (b *CoARequestBuilder) MessageAuthenticator() *CoARequestBuilder {
+	t := true
+	b.req.MessageAuthenticator = &t
+	return b
+}
+
+// WithoutMessageAuthenticator forces omission of Message-Authenticator from
+// this CoA-Request, overriding the Client's default policy.
+func (b *CoARequestBuilder) WithoutMessageAuthenticator() *CoARequestBuilder {
+	f := false
+	b.req.MessageAuthenticator = &f
+	return b
+}
+
 // Build returns the assembled *CoARequest.
 func (b *CoARequestBuilder) Build() *CoARequest { return b.req }
 
@@ -216,6 +232,22 @@ func (b *DisconnectRequestBuilder) AttrIPv6(t byte, ip net.IP) *DisconnectReques
 // Attrs replaces the attribute slice with a copy of attrs.
 func (b *DisconnectRequestBuilder) Attrs(attrs []packet.Attribute) *DisconnectRequestBuilder {
 	b.req.Attributes = append([]packet.Attribute(nil), attrs...)
+	return b
+}
+
+// MessageAuthenticator forces a Message-Authenticator attribute into this
+// Disconnect-Request, overriding the Client's default policy (RFC 5176 §3.4).
+func (b *DisconnectRequestBuilder) MessageAuthenticator() *DisconnectRequestBuilder {
+	t := true
+	b.req.MessageAuthenticator = &t
+	return b
+}
+
+// WithoutMessageAuthenticator forces omission of Message-Authenticator from
+// this Disconnect-Request, overriding the Client's default policy.
+func (b *DisconnectRequestBuilder) WithoutMessageAuthenticator() *DisconnectRequestBuilder {
+	f := false
+	b.req.MessageAuthenticator = &f
 	return b
 }
 
