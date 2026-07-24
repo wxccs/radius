@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/wxccs/radius/v2/crypto"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
 	"github.com/wxccs/radius/v2/packet"
 	"github.com/wxccs/radius/v2/vendors"
 )
@@ -94,4 +95,72 @@ func TestDecode_NonVSARejected(t *testing.T) {
 	attr := packet.NewString(1, "alice")
 	_, _, ok := Decode(attr)
 	assert.False(t, ok)
+}
+
+func TestNewMPPESendKey_RoundTrip(t *testing.T) {
+	secret := []byte("shared-secret")
+	ra := [16]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+	key := []byte{
+		0xA0, 0xA1, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7,
+		0xA8, 0xA9, 0xAA, 0xAB, 0xAC, 0xAD, 0xAE, 0xAF,
+	}
+	attr, err := NewMPPESendKey(key, ra, secret)
+	require.NoError(t, err)
+
+	vtype, val, ok := Decode(attr)
+	require.True(t, ok)
+	assert.Equal(t, VendorTypeMPPESendKey, vtype, "Vendor-Type 16 (MS-MPPE-Send-Key)")
+	require.GreaterOrEqual(t, len(val), 18)
+	assert.NotZero(t, val[0]&0x80, "Salt MSB must be set (RFC 2548 §3.3)")
+
+	dec, err := DecryptMPPEKeyAttribute(attr, ra, secret)
+	require.NoError(t, err)
+	assert.Equal(t, key, dec)
+}
+
+func TestNewMPPERecvKey_RoundTrip(t *testing.T) {
+	secret := []byte("shared-secret")
+	ra := [16]byte{0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15}
+	key := []byte{0xB0, 0xB1, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7} // 40-bit
+	attr, err := NewMPPERecvKey(key, ra, secret)
+	require.NoError(t, err)
+
+	vtype, _, ok := Decode(attr)
+	require.True(t, ok)
+	assert.Equal(t, VendorTypeMPPERecvKey, vtype, "Vendor-Type 17 (MS-MPPE-Recv-Key)")
+
+	dec, err := DecryptMPPEKeyAttribute(attr, ra, secret)
+	require.NoError(t, err)
+	assert.Equal(t, key, dec)
+}
+
+func TestNewMPPESendKey_DistinctSalts(t *testing.T) {
+	secret := []byte("s")
+	ra := [16]byte{}
+	key := []byte{1, 2, 3, 4, 5, 6, 7, 8}
+	a, err := NewMPPESendKey(key, ra, secret)
+	require.NoError(t, err)
+	b, err := NewMPPESendKey(key, ra, secret)
+	require.NoError(t, err)
+	_, va, _ := Decode(a)
+	_, vb, _ := Decode(b)
+	assert.NotEqual(t, va, vb, "random salt must produce distinct VSA values")
+}
+
+func TestDecryptMPPEKeyAttribute_RejectsNonMPPEMicrosoft(t *testing.T) {
+	secret := []byte("s")
+	ra := [16]byte{}
+	// MS-CHAP2-Response (type 25) is a Microsoft VSA but not an MPPE-key type.
+	attr := NewMSCHAP2Response(make([]byte, 49))
+	_, err := DecryptMPPEKeyAttribute(attr, ra, secret)
+	assert.ErrorIs(t, err, radiuserrors.ErrInvalidAttribute)
+}
+
+func TestDecryptMPPEKeyAttribute_RejectsNonMicrosoft(t *testing.T) {
+	secret := []byte("s")
+	ra := [16]byte{}
+	// A Cisco VSA with vendor-type 16 must not be treated as MS-MPPE-Send-Key.
+	ciscoAttr := vendors.NewVSA(9, 16, []byte("not microsoft"))
+	_, err := DecryptMPPEKeyAttribute(ciscoAttr, ra, secret)
+	assert.ErrorIs(t, err, radiuserrors.ErrInvalidAttribute)
 }

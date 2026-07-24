@@ -20,6 +20,7 @@ package microsoft
 
 import (
 	"github.com/wxccs/radius/v2/crypto"
+	radiuserrors "github.com/wxccs/radius/v2/errors"
 	"github.com/wxccs/radius/v2/packet"
 	"github.com/wxccs/radius/v2/vendors"
 )
@@ -58,6 +59,14 @@ const (
 	// session keys. The MPPE sub-types use this single type with
 	// separate sub-encodings for send/recv and 40/56/128-bit lengths.
 	VendorTypeMPPEKey byte = 12
+	// VendorTypeMPPESendKey is the MS-MPPE-Send-Key VSA (RFC 2548
+	// §2.4.2). Carries the server->client MPPE session key, encrypted
+	// per RFC 2548 §3.3.
+	VendorTypeMPPESendKey byte = 16
+	// VendorTypeMPPERecvKey is the MS-MPPE-Recv-Key VSA (RFC 2548
+	// §2.4.3). Carries the client->server MPPE session key, encrypted
+	// per RFC 2548 §3.3.
+	VendorTypeMPPERecvKey byte = 17
 )
 
 // NewMSCHAPResponse constructs an MS-CHAP-Response VSA carrying the
@@ -120,6 +129,46 @@ func NewMPPEKey(salt [2]byte, keyLength byte, key []byte) packet.Attribute {
 	v[2] = keyLength
 	copy(v[3:], key)
 	return vendors.NewVSA(VendorID, VendorTypeMPPEKey, v)
+}
+
+// NewMPPESendKey constructs an MS-MPPE-Send-Key VSA (Vendor-Type 16, RFC 2548
+// §2.4.2) carrying the server->client MPPE session key. The key is encrypted
+// per RFC 2548 §3.3 using the shared secret and the Access-Request's Request
+// Authenticator.
+//
+// key is the raw session key (typically 8 octets for 40-bit MPPE, 16 for
+// 128-bit). requestAuth is the Request Authenticator of the enclosing
+// Access-Request.
+func NewMPPESendKey(key []byte, requestAuth [16]byte, secret []byte) (packet.Attribute, error) {
+	enc, err := crypto.EncryptMPPEKey(key, requestAuth, secret)
+	if err != nil {
+		return packet.Attribute{}, err
+	}
+	return vendors.NewVSA(VendorID, VendorTypeMPPESendKey, enc), nil
+}
+
+// NewMPPERecvKey constructs an MS-MPPE-Recv-Key VSA (Vendor-Type 17, RFC 2548
+// §2.4.3) carrying the client->server MPPE session key, encrypted per RFC
+// 2548 §3.3.
+func NewMPPERecvKey(key []byte, requestAuth [16]byte, secret []byte) (packet.Attribute, error) {
+	enc, err := crypto.EncryptMPPEKey(key, requestAuth, secret)
+	if err != nil {
+		return packet.Attribute{}, err
+	}
+	return vendors.NewVSA(VendorID, VendorTypeMPPERecvKey, enc), nil
+}
+
+// DecryptMPPEKeyAttribute decrypts an MS-MPPE-Send-Key (Vendor-Type 16) or
+// MS-MPPE-Recv-Key (Vendor-Type 17) VSA and returns the session key.
+// requestAuth is the Request Authenticator of the Access-Request that
+// produced the enclosing Access-Accept. Returns ErrInvalidAttribute if attr
+// is not a Microsoft VSA of one of these two types.
+func DecryptMPPEKeyAttribute(attr packet.Attribute, requestAuth [16]byte, secret []byte) ([]byte, error) {
+	vendorType, value, ok := Decode(attr)
+	if !ok || (vendorType != VendorTypeMPPESendKey && vendorType != VendorTypeMPPERecvKey) {
+		return nil, radiuserrors.ErrInvalidAttribute
+	}
+	return crypto.DecryptMPPEKey(value, requestAuth, secret)
 }
 
 // Decode returns the vendor-type and value if attr is a Microsoft VSA.
