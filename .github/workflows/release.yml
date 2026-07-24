@@ -1,0 +1,79 @@
+name: Release
+
+# Publishes a source-only GitHub Release when a version tag (v*) is pushed.
+#
+# Flow:
+#   1. Reuse .github/workflows/ci.yml so the exact same lint/test/coverage/
+#      license checks gate every release (single source of truth for CI).
+#   2. Once CI is green, extract the release notes for this tag from
+#      CHANGELOG.md (Keep a Changelog format: "## [<tag>]").
+#   3. Create the GitHub Release with those notes. No binary artifacts are
+#      built or uploaded - GitHub automatically provides the source code
+#      (.tar.gz / .zip) downloads for the tagged commit.
+#
+# Release notes must exist in CHANGELOG.md for the tag, otherwise the job
+# fails (forces the CHANGELOG to be updated before tagging).
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  ci:
+    name: CI gate
+    # Reuse the CI workflow so the release is gated by the identical checks
+    # that run on every push.
+    uses: ./.github/workflows/ci.yml
+
+  release:
+    name: Publish source release
+    needs: ci
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Extract release notes from CHANGELOG
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          notes_file="$(mktemp)"
+          # Extract the CHANGELOG.md body for this tag. Entries use the
+          # "## [<tag>]" header (Keep a Changelog). We print every line after
+          # the matching header until the next header. index() is used instead
+          # of a regex so the tag's dots are matched literally.
+          awk -v tag="$TAG" '
+            /^## \[/ {
+              insec = (index($0, "## [" tag "]") == 1)
+              next
+            }
+            insec { print }
+          ' CHANGELOG.md > "$notes_file"
+
+          if [ ! -s "$notes_file" ]; then
+            echo "::error::No CHANGELOG.md section found for tag '$TAG'. Add a \"## [$TAG]\" section before tagging." >&2
+            exit 1
+          fi
+          echo "Extracted release notes ($(wc -l < "$notes_file") lines)."
+          echo "notes_file=$notes_file" >> "$GITHUB_ENV"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          # No --notes-file asset list is passed: GitHub attaches the tag's
+          # source code (.tar.gz/.zip) automatically. No binaries are built.
+          gh release create "$TAG" \
+            --title "$TAG" \
+            --notes-file "$notes_file" \
+            --latest \
+            --verify-tag
+          echo "Created release $TAG (source code only)."

@@ -8,6 +8,58 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 No unreleased changes.
 
+## [v2.4.0] - 2026-07-24
+
+### Fixed
+
+- `crypto`: Tunnel-Password encryption (RFC 2868 §3.5) now matches the RFC
+  and FreeRADIUS - the first keystream block uses
+  `MD5(Secret + RequestAuth + Salt)` (was `Secret + Salt + RA`), the
+  plaintext carries the Data-Length prefix, and the Salt high bit is always
+  set. The optional Tag is no longer folded into the Salt. This changes the
+  wire bytes and the `EncryptTunnelPassword`/`DecryptTunnelPassword` API
+  (the `tag`/`hasTag` parameters were removed; Tag is handled by
+  `EncodeTunnelTag`/`DecodeTunnelTag` at the attribute layer).
+- `crypto`: `GenerateAuthenticatorResponse` (RFC 2759 §8.7) now produces
+  the correct `S=<hex>` response. The previous construction was structurally
+  wrong (the 8-byte ChallengeHash did not participate). Verified against the
+  layeh/radius reference vector `S=E776FC79...`.
+- `vendors/alcatel`: corrected the Vendor-Id from 800 (Xylan) to 3041
+  (Alcatel), matching FreeRADIUS `dictionary.alcatel`.
+- `protocol`: `Client.SendCoA`/`SendDisconnect` no longer unconditionally
+  prepend a Message-Authenticator attribute. RFC 5176 §3.4 makes it OPTIONAL
+  and FreeRADIUS radclient omits it by default; the previous behavior caused
+  Cisco IOS-XE dynamic-author servers to reject CoA/Disconnect-Requests with
+  "Invalid Authenticator". The packet and server layers already supported
+  both forms; only the client forcing was removed.
+
+### Added
+
+- `crypto`: `EncryptMPPEKey`/`DecryptMPPEKey` implement the RFC 2548 §3.3
+  salted MD5-feedback key transport used by the MS-MPPE-Send-Key/Recv-Key
+  attributes.
+- `vendors/microsoft`: `NewMPPESendKey`/`NewMPPERecvKey`/
+  `DecryptMPPEKeyAttribute` wrap MPPE session keys in VSAs (Vendor-Type
+  16/17) with RFC 2548 §3.3 encryption.
+- `protocol`: `WithMessageAuthenticatorRequired(bool)` Option and
+  `CoARequestBuilder`/`DisconnectRequestBuilder`
+  `MessageAuthenticator()`/`WithoutMessageAuthenticator()` methods control
+  the Message-Authenticator on CoA/Disconnect-Requests per-Client or
+  per-request.
+- `cmd/radius-tool`: `coa`/`disconnect` commands gain a
+  `--message-authenticator` flag.
+- `ci`: a `release` workflow creates a source-only GitHub Release when a
+  `v*` tag is pushed, gated by the reusable `ci` workflow and with notes
+  extracted from this CHANGELOG.
+
+### Changed
+
+- `Client.SendCoA`/`SendDisconnect` omit Message-Authenticator by default
+  (was always included). Callers that relied on the attribute must enable it
+  via `WithMessageAuthenticatorRequired(true)` or the builder methods. This
+  does not affect Access-Request (EAP always carries it, PAP does not).
+  not affect Access-Request (EAP always carries it, PAP does not).
+
 ## [v2.3.1] - 2026-07-22
 
 ### Fixed

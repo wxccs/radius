@@ -5,6 +5,9 @@ on:
     branches: ["**"]
   pull_request:
     branches: ["main"]
+  # Allow the Release workflow to reuse this CI as a pre-release gate so
+  # the lint/test/coverage/license checks run identically on tag pushes.
+  workflow_call:
 
 # Local development note: when running go commands that hit the network
 # (go mod download, go-licenses), set HTTP_PROXY/HTTPS_PROXY in your shell.

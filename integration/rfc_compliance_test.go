@@ -202,8 +202,8 @@ func TestRFC5176_CoANAKWithErrorCause(t *testing.T) {
 }
 
 // TestRFC2868_TunnelPasswordRoundTrip verifies that a Tunnel-Password
-// encrypted by the client can be decrypted by the server using the
-// same secret and Request Authenticator (RFC 2868 §3.3).
+// encrypted by the client can be decrypted by the server using the same
+// secret and Request Authenticator (RFC 2868 §3.5).
 func TestRFC2868_TunnelPasswordRoundTrip(t *testing.T) {
 	ctx := t.Context()
 
@@ -217,7 +217,7 @@ func TestRFC2868_TunnelPasswordRoundTrip(t *testing.T) {
 				Code: types.AccessReject, Identifier: req.Identifier, Authenticator: req.Authenticator,
 			}, nil
 		}
-		dec, tag, _, err := crypto.DecryptTunnelPassword(tp.Value, req.Authenticator, secret)
+		dec, err := crypto.DecryptTunnelPassword(tp.Value, req.Authenticator, secret)
 		if err != nil {
 			return &packet.Packet{
 				Code: types.AccessReject, Identifier: req.Identifier, Authenticator: req.Authenticator,
@@ -229,7 +229,6 @@ func TestRFC2868_TunnelPasswordRoundTrip(t *testing.T) {
 			Authenticator: req.Authenticator,
 			Attributes: []packet.Attribute{
 				packet.NewString(types.AttrReplyMessage, string(dec)),
-				packet.NewInteger(types.AttrTunnelType, uint32(tag)),
 			},
 		}, nil
 	})
@@ -241,7 +240,7 @@ func TestRFC2868_TunnelPasswordRoundTrip(t *testing.T) {
 	// to match what the client will send, so we generate one and pass it in.
 	reqAuth, err := protocol.NewAccessRequestAuthenticator()
 	require.NoError(t, err)
-	enc, err := crypto.EncryptTunnelPassword(password, reqAuth, secret, 0x02, true)
+	enc, err := crypto.EncryptTunnelPassword(password, reqAuth, secret)
 	require.NoError(t, err)
 
 	callCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
